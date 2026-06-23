@@ -1,0 +1,14 @@
+{
+  "dataset_rows": 12,
+  "precision": 0.6667,
+  "recall": 1.0,
+  "f1": 0.8,
+  "false_positive_rate": 0.5,
+  "confusion_matrix": {
+    "tn": 1,
+    "fp": 1,
+    "fn": 0,
+    "tp": 2
+  },
+  "warning": "Illustrative smoke-test metrics from the tiny synthetic dataset; not production evidence."
+}

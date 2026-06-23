@@ -1,0 +1,13 @@
+text,label
+"From: payroll@example.org Subject: Timesheet reminder Please submit your regular timesheet in the company portal.",0
+"From: maya@example.org Subject: Project notes Hi team, here are the notes from our weekly planning meeting.",0
+"From: library@example.edu Subject: Book return reminder Your borrowed book is due next Tuesday.",0
+"From: store@example.com Subject: Your order shipped Your order has shipped and can be viewed in your account.",0
+"From: hr@example.org Subject: Benefits session Join the optional benefits information session on Friday.",0
+"From: security-team@example.org Subject: Scheduled maintenance Our internal portal will be unavailable Saturday.",0
+"From: support.brand@gmail.com Subject: URGENT account suspended Verify your password now at http://198.51.100.9/login",1
+"From: prize@example.xyz Subject: You won Act immediately and send bank details to claim your prize.",1
+"From: billing@example.click Subject: Final warning Payment overdue. Buy gift cards and reply with the codes.",1
+"From: admin@example.top Subject: Mailbox full Sign in immediately at https://bit.ly/example-inert",1
+"From: delivery@example.work Subject: Failed delivery Verify your identity within 2 hours using the attached login link.",1
+"From: finance@example.zip Subject: Confidential invoice Wire transfer is urgent. Send payment today.",1
