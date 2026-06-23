@@ -5,7 +5,7 @@ services:
       - "8000:8000"
     environment:
       PHISHGUARD_ALLOWED_ORIGINS: http://localhost:8080
-      PHISHGUARD_MODEL_PATH: models/phishguard-v1.joblib
+      PHISHGUARD_MODEL_PATH: models/phishguard-v2.joblib
     read_only: true
     tmpfs:
       - /tmp
@@ -18,3 +18,21 @@ services:
       - "8080:80"
     depends_on:
       - api
+  mailbox-scanner:
+    profiles: ["mailbox"]
+    build: ./backend
+    command: ["python", "-m", "app.worker"]
+    env_file:
+      - .env
+    environment:
+      PHISHGUARD_MODEL_PATH: models/phishguard-v2.joblib
+      PHISHGUARD_MAILBOX_STATE_PATH: /state/mailbox-state.json
+      PHISHGUARD_MAILBOX_ALERT_PATH: /state/phishing-alerts.jsonl
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - mailbox-state:/state
+
+volumes:
+  mailbox-state:

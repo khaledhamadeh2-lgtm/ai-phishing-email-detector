@@ -21,3 +21,9 @@ def test_eml_upload() -> None:
     response = client.post("/api/analyze-eml", files={"file": ("sample.eml", eml, "message/rfc822")})
     assert response.status_code == 200
     assert "probability" in response.json()
+
+
+def test_security_headers() -> None:
+    response = client.get("/api/health")
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"

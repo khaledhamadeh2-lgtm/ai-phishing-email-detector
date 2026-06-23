@@ -8,7 +8,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
 from sklearn.model_selection import train_test_split
-from sklearn.pipeline import Pipeline
+from sklearn.pipeline import FeatureUnion, Pipeline
 
 
 def train(dataset: Path, model_output: Path, metrics_output: Path) -> None:
@@ -22,10 +22,36 @@ def train(dataset: Path, model_output: Path, metrics_output: Path) -> None:
     )
     pipeline = Pipeline(
         [
-            ("tfidf", TfidfVectorizer(ngram_range=(1, 2), min_df=1, max_features=30_000, sublinear_tf=True)),
+            (
+                "features",
+                FeatureUnion(
+                    [
+                        (
+                            "words",
+                            TfidfVectorizer(
+                                ngram_range=(1, 2),
+                                min_df=1,
+                                max_features=30_000,
+                                sublinear_tf=True,
+                                strip_accents="unicode",
+                            ),
+                        ),
+                        (
+                            "characters",
+                            TfidfVectorizer(
+                                analyzer="char_wb",
+                                ngram_range=(3, 5),
+                                min_df=1,
+                                max_features=40_000,
+                                sublinear_tf=True,
+                            ),
+                        ),
+                    ]
+                ),
+            ),
             (
                 "classifier",
-                LogisticRegression(class_weight={0: 1.0, 1: 1.35}, max_iter=1_000, random_state=42),
+                LogisticRegression(class_weight={0: 1.0, 1: 1.5}, max_iter=1_000, random_state=42),
             ),
         ]
     )
@@ -57,7 +83,7 @@ def train(dataset: Path, model_output: Path, metrics_output: Path) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=Path, default=Path("ml/sample_data.csv"))
-    parser.add_argument("--model-output", type=Path, default=Path("backend/models/phishguard-v1.joblib"))
+    parser.add_argument("--model-output", type=Path, default=Path("backend/models/phishguard-v2.joblib"))
     parser.add_argument("--metrics-output", type=Path, default=Path("docs/model-metrics.json"))
     args = parser.parse_args()
     train(args.dataset, args.model_output, args.metrics_output)

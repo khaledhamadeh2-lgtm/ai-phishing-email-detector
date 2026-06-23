@@ -1,6 +1,8 @@
 import ipaddress
 import re
+import unicodedata
 from dataclasses import dataclass
+from email.utils import parseaddr
 from urllib.parse import urlsplit
 
 URL_PATTERN = re.compile(r"https?://[^\s<>'\"\])]+", re.IGNORECASE)
@@ -23,6 +25,7 @@ SHORTENERS = {"bit.ly", "tinyurl.com", "t.co", "ow.ly", "is.gd", "buff.ly"}
 SUSPICIOUS_TLDS = {"zip", "mov", "click", "top", "xyz", "work", "support", "country"}
 FREE_MAIL = {"gmail.com", "outlook.com", "yahoo.com", "hotmail.com", "proton.me"}
 BRANDS = {"microsoft", "google", "apple", "paypal", "amazon", "netflix", "docusign", "dropbox"}
+ZERO_WIDTH = re.compile(r"[\u200b-\u200f\u2060\ufeff]")
 
 
 @dataclass(frozen=True)
@@ -37,8 +40,44 @@ class RuleFinding:
 
 
 def _domain_from_sender(sender: str) -> str:
-    match = re.search(r"@([A-Za-z0-9.-]+)", sender)
+    address = parseaddr(sender)[1]
+    match = re.search(r"@([A-Za-z0-9.-]+)", address)
     return match.group(1).lower().rstrip(".") if match else ""
+
+
+def _header_findings(sender: str, headers: dict[str, str]) -> list[RuleFinding]:
+    findings: list[RuleFinding] = []
+    normalized = {key.lower(): value for key, value in headers.items()}
+    auth = normalized.get("authentication-results", "").lower()
+    spf = normalized.get("received-spf", "").lower()
+    if any(token in auth for token in ("spf=fail", "dkim=fail", "dmarc=fail")) or spf.startswith("fail"):
+        findings.append(
+            RuleFinding(
+                "authentication_failure",
+                "Email authentication failed",
+                "Trusted headers report an SPF, DKIM, or DMARC authentication failure.",
+                "high",
+                30,
+                normalized.get("authentication-results") or normalized.get("received-spf", ""),
+                "header",
+            )
+        )
+    reply_to = normalized.get("reply-to", "")
+    sender_domain = _domain_from_sender(sender)
+    reply_domain = _domain_from_sender(reply_to)
+    if reply_domain and sender_domain and reply_domain != sender_domain:
+        findings.append(
+            RuleFinding(
+                "reply_to_mismatch",
+                "Reply-to domain mismatch",
+                "Replies are directed to a different domain than the visible sender.",
+                "high",
+                20,
+                reply_to,
+                "header",
+            )
+        )
+    return findings
 
 
 def _url_findings(text: str) -> list[RuleFinding]:
@@ -76,7 +115,12 @@ def _url_findings(text: str) -> list[RuleFinding]:
     return findings
 
 
-def evaluate(sender: str, subject: str, body: str) -> list[RuleFinding]:
+def evaluate(
+    sender: str,
+    subject: str,
+    body: str,
+    headers: dict[str, str] | None = None,
+) -> list[RuleFinding]:
     text = f"{subject}\n{body}"
     findings: list[RuleFinding] = []
     patterns = [
@@ -157,6 +201,21 @@ def evaluate(sender: str, subject: str, body: str) -> list[RuleFinding]:
                 7,
             )
         )
+    normalized_text = unicodedata.normalize("NFKC", text)
+    if ZERO_WIDTH.search(text) or normalized_text != text:
+        findings.append(
+            RuleFinding(
+                "unicode_obfuscation",
+                "Unicode obfuscation",
+                "Invisible or compatibility Unicode characters may be hiding suspicious wording.",
+                "medium",
+                12,
+                "",
+                "language",
+            )
+        )
+    if headers:
+        findings.extend(_header_findings(sender, headers))
     findings.extend(_url_findings(text))
 
     deduplicated: dict[str, RuleFinding] = {}

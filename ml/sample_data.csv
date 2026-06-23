@@ -11,3 +11,17 @@ text,label
 "From: admin@example.top Subject: Mailbox full Sign in immediately at https://bit.ly/example-inert",1
 "From: delivery@example.work Subject: Failed delivery Verify your identity within 2 hours using the attached login link.",1
 "From: finance@example.zip Subject: Confidential invoice Wire transfer is urgent. Send payment today.",1
+"From: security@example.org Subject: Quarterly awareness training The optional training opens next Monday in our internal learning portal.",0
+"From: events@example.edu Subject: Campus lecture The public cybersecurity lecture begins at 5 PM in the main hall.",0
+"From: receipts@example.com Subject: Receipt available Your receipt is available inside the account you already use.",0
+"From: teamlead@example.org Subject: Review request Please review the attached draft in our normal document workspace when convenient.",0
+"From: security@example.org Subject: Password policy reminder Never share your password. The security team will never ask for credentials.",0
+"From: finance@example.org Subject: Invoice process reminder Verify invoices in the internal finance system before approving payment.",0
+"From: manager@example.org Subject: Urgent meeting change Our 3 PM meeting moved to room 4. No action is needed outside the calendar.",0
+"From: bank@example.com Subject: Security education Learn how to identify gift card and wire transfer scams in our awareness guide.",0
+"From: support@example.org Subject: Login maintenance The normal login portal will be unavailable during scheduled maintenance.",0
+"From: travel@example.com Subject: Itinerary update Your flight time changed. Review the itinerary in the airline application.",0
+"From: IT Helpdesk <helpdesk@micros0ft-support.example> Subject: Verify acc0unt V3rify your passw0rd n0w at hxxps://login-example.invalid",1
+"From: payroll@example.click Subject: URG3NT payroll update Confirm your bank deta1ls immediately to prevent suspension.",1
+"From: CEO <chief.executive@gmail.com> Subject: confidential Buy gift cards now and send the codes only to me.",1
+"From: cloud@example.xyz Subject: Storage warning S​ign in within 1 hour to avoid account deletion.",1

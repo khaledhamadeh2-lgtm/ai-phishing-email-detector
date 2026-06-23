@@ -7,7 +7,7 @@ from .config import settings
 from .rules import evaluate
 from .schemas import AnalysisResponse, Highlight, RiskFactor
 
-MODEL_VERSION = "phishguard-v1"
+MODEL_VERSION = "phishguard-v2"
 
 
 @lru_cache(maxsize=1)
@@ -18,8 +18,8 @@ def load_model():
     return joblib.load(path)
 
 
-def analyze(sender: str, subject: str, body: str) -> AnalysisResponse:
-    findings = evaluate(sender, subject, body)
+def analyze(sender: str, subject: str, body: str, headers: dict[str, str] | None = None) -> AnalysisResponse:
+    findings = evaluate(sender, subject, body, headers)
     rule_score = min(100.0, float(sum(f.weight for f in findings)))
     model = load_model()
     model_score = 50.0
@@ -56,4 +56,5 @@ def analyze(sender: str, subject: str, body: str) -> AnalysisResponse:
         ],
         recommendations=recommendations,
         model_version=MODEL_VERSION,
+        analyzed_headers=bool(headers),
     )

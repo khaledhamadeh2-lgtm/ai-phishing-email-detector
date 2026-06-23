@@ -5,6 +5,7 @@ class EmailInput(BaseModel):
     sender: str = Field(default="", max_length=500)
     subject: str = Field(default="", max_length=1_000)
     body: str = Field(min_length=1, max_length=250_000)
+    headers: dict[str, str] = Field(default_factory=dict)
 
 
 class RiskFactor(BaseModel):
@@ -30,3 +31,4 @@ class AnalysisResponse(BaseModel):
     highlights: list[Highlight]
     recommendations: list[str]
     model_version: str
+    analyzed_headers: bool

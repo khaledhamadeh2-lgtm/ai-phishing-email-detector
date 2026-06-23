@@ -25,6 +25,8 @@ docker compose up --build
 
 ```mermaid
 flowchart LR
+    Mailbox["Read-only IMAP mailbox"] --> Worker["Scheduled scanner"]
+    Worker --> Parser
     UI["React dashboard"] -->|JSON or EML| API["FastAPI validation layer"]
     API --> Parser["Safe MIME text parser"]
     API --> Rules["Explainable rule engine"]
@@ -40,9 +42,11 @@ flowchart LR
 ## Detection methodology
 
 - **Rules (42%):** high-signal, auditable indicators such as credential language, pressure, payment requests,
-  brand/free-mail mismatches, suspicious URL structure, and aggressive formatting.
-- **Model (58%):** a scikit-learn pipeline using word and bigram TF-IDF features with class-weighted logistic
-  regression. Logistic regression is fast, inspectable, and produces calibrated-enough ranking for this demo.
+  brand/free-mail mismatches, failed SPF/DKIM/DMARC results, reply-to mismatches, Unicode obfuscation, suspicious
+  URL structure, and aggressive formatting.
+- **Model (58%):** a scikit-learn feature union combining word/bigram TF-IDF with character 3–5 grams and
+  class-weighted logistic regression. Character features make simple spelling substitutions and obfuscation harder
+  to use as an evasion technique.
 - **Fusion:** bounded weighted scoring maps to `Safe` (<35), `Suspicious` (35–69.9), or `Likely Phishing` (≥70).
 
 The parser reads only plain-text MIME parts, skips attachments, caps input size, and never performs network requests.
@@ -72,6 +76,33 @@ curl -X POST http://localhost:8000/api/analyze \
 ```
 
 `POST /api/analyze-eml` accepts multipart field `file`. Only `.eml` uploads are allowed; attachments are ignored.
+When trusted mail headers are available, the detector also evaluates authentication results and sender/reply-to
+alignment. Set `PHISHGUARD_API_KEY` to require `X-API-Key` on analysis endpoints in non-browser deployments.
+
+## Automatic mailbox monitoring
+
+The optional worker connects to standards-compliant IMAP over TLS and scans unseen messages on a schedule:
+
+```bash
+cp .env.example .env
+# Fill in PHISHGUARD_MAILBOX_HOST, USERNAME, and either an app password or OAuth2 access token.
+docker compose --profile mailbox up --build
+```
+
+Security properties:
+
+- Opens the selected folder with `readonly=True`.
+- Fetches with `BODY.PEEK[]`, so scanning does not mark a message as read.
+- Never follows URLs, renders HTML, opens attachments, or executes message content.
+- Caps message size and MIME-part count to reduce parser/resource-exhaustion risk.
+- Stores only SHA-256 fingerprints for deduplication and limited alert metadata—never message bodies—in a private
+  Docker volume.
+- Supports an app password or OAuth2 bearer token exclusively through environment variables.
+- Logs errors by type without printing mailbox credentials or full message bodies.
+
+Use a dedicated least-privilege mailbox account where possible. Provider configuration differs: Gmail generally
+requires an app password or OAuth2; enterprise Microsoft 365 deployments commonly require OAuth2 and administrator
+approval. The worker intentionally does not delete, move, label, reply to, or quarantine messages.
 
 ## Local development
 
@@ -102,8 +133,8 @@ Copy `.env.example` to `.env` only when overriding defaults. Never commit real e
 - Attachments and HTML MIME parts are ignored.
 - Input is validated and size-limited; errors avoid echoing submitted email content into logs.
 - The demo has no database and retains no messages.
-- Production use should add authentication, TLS, rate limits, malware isolation, redaction, and a documented
-  retention policy.
+- Production use should enable the optional API key and add TLS termination, rate limits, malware isolation,
+  further redaction, and a documented retention policy.
 
 ## Tests and automation
 
@@ -120,8 +151,9 @@ docker compose build
 
 - The bundled model is a reproducible demonstration, not a production benchmark.
 - Text-only analysis cannot inspect images, QR codes, attachment contents, or live domain reputation.
-- Sender display names are not proof of identity; full SPF, DKIM, and DMARC results require trusted mail headers.
-- Attackers can evade lexical models through obfuscation, new languages, and novel social-engineering tactics.
+- SPF, DKIM, and DMARC findings are useful only when the supplied headers came from a trusted mail server.
+- Character features improve resistance to simple obfuscation but not new languages or novel social engineering.
+- Automatic mailbox scanning is detection-only and deliberately does not quarantine or modify messages.
 - Future work: campaign-grouped evaluation, multilingual models, SHAP-style feature explanations, authenticated
   analyst feedback, domain reputation through a privacy-conscious service, and drift monitoring.
 
@@ -131,16 +163,6 @@ This project strengthened my ability to turn an ML experiment into a usable secu
 explainable scoring, leakage-aware evaluation, typed API design, accessible UI work, containerization, and CI
 security checks. The most important lesson was that honest uncertainty and useful explanations matter as much as a
 headline accuracy number.
-
-## CV-ready description
-
-- Built an explainable phishing-email detector combining TF-IDF logistic regression with a weighted cybersecurity
-  rule engine and human-readable risk evidence.
-- Designed a typed FastAPI service and responsive React dashboard supporting pasted email and safe `.eml` analysis.
-- Implemented reproducible training, leakage controls, model versioning, pytest coverage, dependency auditing,
-  Docker Compose, and GitHub Actions CI.
-- Applied privacy-by-design controls that prevent URL fetching, ignore attachments, validate input, and retain no
-  submitted messages.
 
 ## License
 
