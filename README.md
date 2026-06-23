@@ -1,6 +1,6 @@
 # PhishGuard AI
 
-An explainable, portfolio-grade phishing email detector that combines a trained text classifier with deterministic
+A phishing email detector that combines a trained text classifier with deterministic
 security rules. It accepts pasted messages and `.eml` files, assigns a 0–100% phishing probability, and shows the
 signals behind its verdict—without visiting links or opening attachments.
 
