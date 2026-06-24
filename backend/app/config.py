@@ -7,8 +7,7 @@ class Settings(BaseSettings):
     max_email_bytes: int = Field(default=250_000, ge=10_000, le=2_000_000)
     model_path: str = "models/phishguard-v2.joblib"
     allowed_origins: str = (
-        "http://localhost:5173,http://127.0.0.1:5173,"
-        "http://localhost:8080,http://127.0.0.1:8080"
+        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080"
     )
     log_level: str = "INFO"
     api_key: str = ""
@@ -24,6 +23,11 @@ class Settings(BaseSettings):
     mailbox_alert_threshold: float = Field(default=70.0, ge=0.0, le=100.0)
     mailbox_state_path: str = "/tmp/phishguard-mailbox-state.json"
     mailbox_alert_path: str = "/tmp/phishguard-alerts.jsonl"
+    trusted_domains: str = ""
+    trusted_senders: str = ""
+    protected_brands: str = "microsoft,google,apple,paypal,amazon,netflix,docusign,dropbox"
+    max_attachment_bytes: int = Field(default=2_000_000, ge=10_000, le=10_000_000)
+    feedback_path: str = "/tmp/phishguard-feedback.jsonl"
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="PHISHGUARD_")
 
@@ -34,6 +38,20 @@ class Settings(BaseSettings):
     @property
     def hosts(self) -> list[str]:
         return [host.strip() for host in self.trusted_hosts.split(",") if host.strip()]
+
+    @property
+    def trusted_domain_list(self) -> list[str]:
+        return [
+            domain.strip().lower().lstrip("@") for domain in self.trusted_domains.split(",") if domain.strip()
+        ]
+
+    @property
+    def trusted_sender_list(self) -> list[str]:
+        return [sender.strip().lower() for sender in self.trusted_senders.split(",") if sender.strip()]
+
+    @property
+    def protected_brand_list(self) -> list[str]:
+        return [brand.strip().lower() for brand in self.protected_brands.split(",") if brand.strip()]
 
 
 settings = Settings()

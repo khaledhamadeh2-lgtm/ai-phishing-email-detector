@@ -5,6 +5,9 @@ from dataclasses import dataclass
 from email.utils import parseaddr
 from urllib.parse import urlsplit
 
+from .config import settings
+from .org_context import is_lookalike_domain
+
 URL_PATTERN = re.compile(r"https?://[^\s<>'\"\])]+", re.IGNORECASE)
 URGENCY_PATTERN = re.compile(
     r"\b(urgent|immediately|final warning|act now|within \d+ hours?|"
@@ -212,6 +215,23 @@ def evaluate(
                 12,
                 "",
                 "language",
+            )
+        )
+    lookalike = is_lookalike_domain(
+        sender_domain,
+        settings.trusted_domain_list,
+        settings.protected_brand_list,
+    )
+    if lookalike:
+        findings.append(
+            RuleFinding(
+                "lookalike_domain",
+                "Possible lookalike domain",
+                f"The sender domain resembles '{lookalike}' but does not exactly match a trusted domain.",
+                "high",
+                28,
+                sender_domain,
+                "sender",
             )
         )
     if headers:

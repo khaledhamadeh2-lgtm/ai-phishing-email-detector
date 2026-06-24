@@ -1,5 +1,8 @@
+import json
 import logging
 import secrets
+from datetime import UTC, datetime
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,7 +12,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from .config import settings
 from .detector import analyze
 from .parser import parse_eml
-from .schemas import AnalysisResponse, EmailInput
+from .schemas import AnalysisResponse, EmailInput, FeedbackInput
 
 logging.basicConfig(level=settings.log_level)
 logger = logging.getLogger(__name__)
@@ -73,4 +76,21 @@ async def analyze_eml(
     except Exception as exc:
         logger.warning("Unable to parse uploaded EML: %s", type(exc).__name__)
         raise HTTPException(status_code=422, detail="The EML file could not be parsed safely.") from exc
-    return analyze(sender_override or parsed.sender, parsed.subject, parsed.body, parsed.headers)
+    return analyze(
+        sender_override or parsed.sender, parsed.subject, parsed.body, parsed.headers, parsed.attachments
+    )
+
+
+@app.post("/api/feedback", dependencies=[Depends(require_api_key)])
+def submit_feedback(payload: FeedbackInput) -> dict[str, str]:
+    path = Path(settings.feedback_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "analysis_id": payload.analysis_id,
+        "label": payload.label,
+        "note": payload.note,
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    return {"status": "recorded"}

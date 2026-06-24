@@ -2,6 +2,9 @@ from dataclasses import dataclass
 from email import policy
 from email.parser import BytesParser
 
+from .attachments import AttachmentRisk, analyze_attachment
+from .config import settings
+
 MAX_MIME_PARTS = 100
 MAX_TEXT_PART_BYTES = 100_000
 SECURITY_HEADERS = (
@@ -22,6 +25,7 @@ class ParsedEmail:
     subject: str
     body: str
     headers: dict[str, str]
+    attachments: tuple[AttachmentRisk, ...]
 
 
 def _safe_part_text(part) -> str:
@@ -39,12 +43,22 @@ def parse_eml(content: bytes) -> ParsedEmail:
     subject = str(message.get("subject", ""))
     headers = {name: str(message.get(name, ""))[:2_000] for name in SECURITY_HEADERS}
     body_parts: list[str] = []
+    attachments: list[AttachmentRisk] = []
 
     if message.is_multipart():
         for index, part in enumerate(message.walk()):
             if index >= MAX_MIME_PARTS:
                 break
             if part.get_content_disposition() == "attachment":
+                payload = part.get_payload(decode=True) or b""
+                attachments.append(
+                    analyze_attachment(
+                        part.get_filename() or "attachment",
+                        part.get_content_type(),
+                        payload,
+                        settings.max_attachment_bytes,
+                    )
+                )
                 continue
             if part.get_content_type() == "text/plain":
                 try:
@@ -62,4 +76,6 @@ def parse_eml(content: bytes) -> ParsedEmail:
     body = "\n".join(body_parts).strip()
     if not body:
         raise ValueError("The EML file contains no readable plain-text message body.")
-    return ParsedEmail(sender=sender, subject=subject, body=body, headers=headers)
+    return ParsedEmail(
+        sender=sender, subject=subject, body=body, headers=headers, attachments=tuple(attachments)
+    )

@@ -1,3 +1,6 @@
+from unittest.mock import patch
+
+from app.config import settings
 from app.detector import analyze
 
 
@@ -47,3 +50,25 @@ def test_reply_to_mismatch_is_detected() -> None:
         {"reply-to": "collector@other-example.net"},
     )
     assert any(factor.id == "reply_to_mismatch" for factor in result.risk_factors)
+
+
+def test_trusted_domain_reduces_but_does_not_zero_risk() -> None:
+    with patch.object(settings, "trusted_domains", "example.org"):
+        result = analyze(
+            "Maya <maya@example.org>",
+            "Verify account",
+            "Please verify your login details.",
+        )
+    assert result.trust_signals
+    assert result.probability > 1
+    assert any(factor.id == "credentials" for factor in result.risk_factors)
+
+
+def test_lookalike_domain_is_detected() -> None:
+    with patch.object(settings, "trusted_domains", "paypal.com"):
+        result = analyze(
+            "Security <security@paypa1.com>",
+            "Receipt",
+            "Your receipt is ready.",
+        )
+    assert any(factor.id == "lookalike_domain" for factor in result.risk_factors)

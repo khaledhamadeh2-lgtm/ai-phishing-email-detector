@@ -22,12 +22,37 @@ class Highlight(BaseModel):
     explanation: str
 
 
+class AttachmentFinding(BaseModel):
+    filename: str
+    content_type: str
+    size_bytes: int
+    sha256: str
+    risk_level: str
+    reasons: list[str]
+    score: int
+
+
+class TrustSignal(BaseModel):
+    title: str
+    detail: str
+    adjustment: int
+
+
+class FeedbackInput(BaseModel):
+    analysis_id: str = Field(min_length=12, max_length=64)
+    label: str = Field(pattern="^(safe|suspicious|phishing|false_positive|false_negative)$")
+    note: str = Field(default="", max_length=1_000)
+
+
 class AnalysisResponse(BaseModel):
+    analysis_id: str
     probability: float
     verdict: str
     rule_score: float
     model_score: float
     risk_factors: list[RiskFactor]
+    trust_signals: list[TrustSignal]
+    attachments: list[AttachmentFinding]
     highlights: list[Highlight]
     recommendations: list[str]
     model_version: str
