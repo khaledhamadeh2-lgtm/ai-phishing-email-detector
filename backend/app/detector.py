@@ -10,7 +10,7 @@ from .org_context import evaluate_trust
 from .rules import evaluate
 from .schemas import AnalysisResponse, AttachmentFinding, Highlight, RiskFactor, TrustSignal
 
-MODEL_VERSION = "phishguard-v2"
+MODEL_VERSION = "phishguard-v3"
 
 
 @lru_cache(maxsize=1)

@@ -66,16 +66,28 @@ requests.
 
 ## Model evaluation
 
-The repository ships a versioned model trained on a tiny, inert synthetic dataset so every clone is immediately
-reproducible. The generated `docs/model-metrics.json` values are smoke-test metrics, not an accuracy claim. A credible
-benchmark requires a larger, current, deduplicated corpus and group-aware splitting by campaign/source.
+The repository ships a versioned `phishguard-v3` model trained on the public
+[`zefang-liu/phishing-email-dataset`](https://huggingface.co/datasets/zefang-liu/phishing-email-dataset)
+corpus (`lgpl-3.0`). The raw corpus is downloaded locally and is not committed.
 
-The training pipeline supports local CSV data with `text,label` columns. Recommended primary sources and licensing
-notes are documented in [`ml/README.md`](ml/README.md). Exact duplicates are removed before the stratified split.
-Recall is favored using phishing class weighting, accepting a potential increase in false positives.
+Held-out evaluation after exact-text deduplication:
+
+| Mode | Precision | Recall | F1 | False-positive rate |
+|---|---:|---:|---:|---:|
+| Default threshold | 0.9793 | 0.9841 | 0.9817 | 0.0124 |
+| Recall-focused threshold | 0.9102 | 0.9969 | 0.9516 | 0.0587 |
+
+The recall-focused threshold catches more phishing messages but increases false positives. Full metrics, confusion
+matrices, leakage controls, and limitations are documented in [`docs/model-evaluation.md`](docs/model-evaluation.md).
+
+Reproduce the benchmark:
 
 ```bash
-python ml/train.py --dataset path/to/local_dataset.csv
+python ml/fetch_public_dataset.py
+python ml/train.py --dataset data/processed/phishing_email_dataset.csv \
+  --source-name zefang-liu/phishing-email-dataset \
+  --source-url https://huggingface.co/datasets/zefang-liu/phishing-email-dataset \
+  --source-license lgpl-3.0
 ```
 
 ## API
@@ -177,7 +189,8 @@ docker compose build
 
 ## Limitations and future work
 
-- The bundled model is a reproducible demonstration, not a production benchmark.
+- The benchmark uses a public historical corpus and is not a guarantee of production performance.
+- The split is stratified but not campaign-grouped because the normalized public CSV does not provide campaign IDs.
 - Static attachment triage is not malware detonation and cannot prove a file is safe.
 - Text-focused analysis cannot yet inspect QR codes, image-only scams, or live domain reputation.
 - SPF, DKIM, and DMARC findings are useful only when the supplied headers came from a trusted mail server.

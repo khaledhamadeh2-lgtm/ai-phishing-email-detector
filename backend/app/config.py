@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "PhishGuard AI"
     max_email_bytes: int = Field(default=250_000, ge=10_000, le=2_000_000)
-    model_path: str = "models/phishguard-v2.joblib"
+    model_path: str = "models/phishguard-v3.joblib"
     allowed_origins: str = (
         "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080"
     )
