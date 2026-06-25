@@ -63,3 +63,27 @@ def test_feedback_records_without_email_body(tmp_path) -> None:
     assert "false_positive" in saved
     assert "Known vendor email" in saved
     assert "body" not in saved
+
+
+def test_mailbox_history_endpoint_returns_redacted_records() -> None:
+    with patch("app.main.read_mailbox_history") as history:
+        history.return_value = [
+            {
+                "uid": "7",
+                "fingerprint": "abc",
+                "analysis_id": "abc123def456",
+                "scanned_at": "2026-06-25T10:00:00+00:00",
+                "sender": "sender@example.org",
+                "subject": "Invoice",
+                "probability": 72.5,
+                "verdict": "Likely Phishing",
+                "risk_factors": ["Credential request"],
+                "attachment_count": 0,
+            }
+        ]
+        response = client.get("/api/mailbox/history?limit=10")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data[0]["analysis_id"] == "abc123def456"
+    assert "body" not in data[0]

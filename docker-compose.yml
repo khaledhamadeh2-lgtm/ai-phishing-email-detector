@@ -28,6 +28,7 @@ services:
       PHISHGUARD_MODEL_PATH: models/phishguard-v3.joblib
       PHISHGUARD_MAILBOX_STATE_PATH: /state/mailbox-state.json
       PHISHGUARD_MAILBOX_ALERT_PATH: /state/phishing-alerts.jsonl
+      PHISHGUARD_MAILBOX_HISTORY_PATH: /state/mailbox-history.jsonl
     read_only: true
     tmpfs:
       - /tmp

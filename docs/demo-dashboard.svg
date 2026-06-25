@@ -1,0 +1,63 @@
+<svg width="1440" height="920" viewBox="0 0 1440 920" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1440" height="920" fill="#07110F"/>
+  <circle cx="1160" cy="50" r="420" fill="#16372C" opacity=".72"/>
+  <text x="70" y="82" fill="#E9F1EE" font-family="Consolas, monospace" font-size="24" font-weight="700">PHISHGUARD <tspan fill="#58E6AA">AI</tspan></text>
+  <circle cx="1245" cy="72" r="6" fill="#58E6AA"/>
+  <text x="1262" y="78" fill="#9DB0A9" font-family="Consolas, monospace" font-size="14">Analysis engine ready</text>
+  <text x="442" y="150" fill="#58E6AA" font-family="Consolas, monospace" font-size="13" letter-spacing="4">EXPLAINABLE THREAT INTELLIGENCE</text>
+  <text x="382" y="225" fill="#E9F1EE" font-family="Arial, sans-serif" font-size="70" font-weight="700">Know before you <tspan fill="#58E6AA">click.</tspan></text>
+  <text x="310" y="270" fill="#9DB0A9" font-family="Arial, sans-serif" font-size="21">Hybrid ML, mailbox monitoring, and security heuristics expose suspicious email signals.</text>
+
+  <rect x="70" y="330" width="610" height="360" rx="18" fill="#0D1B17" stroke="#FFFFFF" stroke-opacity=".12"/>
+  <text x="105" y="375" fill="#58E6AA" font-family="Consolas, monospace" font-size="12">01 / INPUT</text>
+  <text x="105" y="410" fill="#E9F1EE" font-family="Arial, sans-serif" font-size="28" font-weight="700">Inspect a message</text>
+  <rect x="105" y="445" width="540" height="46" rx="9" fill="#07110F" stroke="#FFFFFF" stroke-opacity=".12"/>
+  <text x="125" y="474" fill="#DDE8E3" font-family="Consolas, monospace" font-size="16">Microsoft Support &lt;security.microsoft@gmail.com&gt;</text>
+  <rect x="105" y="510" width="540" height="46" rx="9" fill="#07110F" stroke="#FFFFFF" stroke-opacity=".12"/>
+  <text x="125" y="539" fill="#DDE8E3" font-family="Consolas, monospace" font-size="16">URGENT: Account suspended</text>
+  <rect x="105" y="575" width="540" height="72" rx="9" fill="#07110F" stroke="#FFFFFF" stroke-opacity=".12"/>
+  <text x="125" y="606" fill="#DDE8E3" font-family="Consolas, monospace" font-size="15">Verify your password immediately at https://198.51.100.10/login</text>
+  <rect x="440" y="660" width="205" height="44" rx="9" fill="#58E6AA"/>
+  <text x="475" y="688" fill="#06110D" font-family="Arial, sans-serif" font-size="16" font-weight="700">Analyze message →</text>
+
+  <rect x="710" y="330" width="660" height="360" rx="18" fill="#0D1B17" stroke="#FFFFFF" stroke-opacity=".12"/>
+  <text x="745" y="375" fill="#58E6AA" font-family="Consolas, monospace" font-size="12">02 / ASSESSMENT</text>
+  <text x="745" y="410" fill="#E9F1EE" font-family="Arial, sans-serif" font-size="28" font-weight="700">Threat report</text>
+  <rect x="1192" y="372" width="135" height="30" rx="15" stroke="#FF6F70"/>
+  <text x="1210" y="392" fill="#FF6F70" font-family="Consolas, monospace" font-size="12">LIKELY PHISHING</text>
+  <text x="745" y="505" fill="#E9F1EE" font-family="Consolas, monospace" font-size="82" font-weight="700">92<tspan font-size="28" fill="#9DB0A9">%</tspan></text>
+  <text x="920" y="470" fill="#E9F1EE" font-family="Arial, sans-serif" font-size="20" font-weight="700">Phishing probability</text>
+  <text x="920" y="500" fill="#7C9189" font-family="Consolas, monospace" font-size="13">ML 96% · Rules 87%</text>
+  <rect x="745" y="535" width="580" height="8" rx="4" fill="#FFFFFF" opacity=".10"/>
+  <rect x="745" y="535" width="534" height="8" rx="4" fill="#FF6F70"/>
+  <text x="745" y="585" fill="#ADBDB6" font-family="Consolas, monospace" font-size="14">DETECTED SIGNALS</text>
+  <g font-family="Arial, sans-serif" font-size="15">
+    <rect x="745" y="605" width="580" height="44" rx="10" fill="#07110F" stroke="#FFFFFF" stroke-opacity=".08"/>
+    <circle cx="767" cy="627" r="11" fill="#FF6F70" opacity=".25"/><text x="763" y="632" fill="#FF6F70" font-weight="700">!</text>
+    <text x="790" y="632" fill="#E9F1EE" font-weight="700">Brand sent from free email</text>
+    <text x="1195" y="632" fill="#FF8A8A" font-family="Consolas, monospace">+24</text>
+    <rect x="745" y="657" width="580" height="44" rx="10" fill="#07110F" stroke="#FFFFFF" stroke-opacity=".08"/>
+    <circle cx="767" cy="679" r="11" fill="#FFC45E" opacity=".25"/><text x="763" y="684" fill="#FFC45E" font-weight="700">!</text>
+    <text x="790" y="684" fill="#E9F1EE" font-weight="700">Suspicious link and credential request</text>
+    <text x="1195" y="684" fill="#FF8A8A" font-family="Consolas, monospace">+42</text>
+  </g>
+
+  <rect x="70" y="730" width="1300" height="150" rx="18" fill="#0D1B17" stroke="#FFFFFF" stroke-opacity=".12"/>
+  <text x="105" y="770" fill="#58E6AA" font-family="Consolas, monospace" font-size="12">03 / MAILBOX MONITOR</text>
+  <text x="105" y="805" fill="#E9F1EE" font-family="Arial, sans-serif" font-size="27" font-weight="700">Recent scanned emails</text>
+  <text x="105" y="832" fill="#82978F" font-family="Arial, sans-serif" font-size="15">Stores sender, subject, score, verdict, reasons, attachment count, hashes, and analysis ID — never full email bodies.</text>
+  <g font-family="Arial, sans-serif">
+    <rect x="710" y="760" width="190" height="82" rx="12" fill="#07110F" stroke="#FF6F70" stroke-opacity=".35"/>
+    <text x="730" y="787" fill="#FF6F70" font-family="Consolas, monospace" font-size="22" font-weight="700">92%</text>
+    <text x="730" y="815" fill="#E9F1EE" font-size="14" font-weight="700">URGENT: Account suspended</text>
+    <text x="730" y="835" fill="#9DB0A9" font-size="12">Credential request</text>
+    <rect x="920" y="760" width="190" height="82" rx="12" fill="#07110F" stroke="#FFC45E" stroke-opacity=".35"/>
+    <text x="940" y="787" fill="#FFC45E" font-family="Consolas, monospace" font-size="22" font-weight="700">42%</text>
+    <text x="940" y="815" fill="#E9F1EE" font-size="14" font-weight="700">Invoice approval reminder</text>
+    <text x="940" y="835" fill="#9DB0A9" font-size="12">Payment language</text>
+    <rect x="1130" y="760" width="190" height="82" rx="12" fill="#07110F" stroke="#58E6AA" stroke-opacity=".35"/>
+    <text x="1150" y="787" fill="#58E6AA" font-family="Consolas, monospace" font-size="22" font-weight="700">9%</text>
+    <text x="1150" y="815" fill="#E9F1EE" font-size="14" font-weight="700">Updated project notes</text>
+    <text x="1150" y="835" fill="#9DB0A9" font-size="12">No strong signals</text>
+  </g>
+</svg>

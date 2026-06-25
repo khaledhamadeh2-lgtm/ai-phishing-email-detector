@@ -18,6 +18,8 @@ risk indicators. Users see component scores, concrete evidence, and recommended 
 Run the project and open [http://localhost:8080](http://localhost:8080). The interface includes safe and suspicious
 inert samples for a quick recruiter-friendly demonstration.
 
+![PhishGuard AI dashboard](docs/demo-dashboard.svg)
+
 ```bash
 docker compose up --build
 ```
@@ -39,6 +41,8 @@ flowchart LR
     ML --> Fusion
     Attachments --> Fusion
     Fusion --> Report["Probability, verdict, evidence, actions"]
+    Worker --> History["Redacted mailbox history"]
+    History --> UI
     Report --> Feedback["False-positive / false-negative feedback"]
     Report --> UI
 ```
@@ -59,6 +63,8 @@ flowchart LR
   suspicious language, or attachments can still drive a warning.
 - **Feedback loop:** users can label false positives, false negatives, and correct decisions by analysis ID. The
   feedback log intentionally avoids storing full email bodies so it can support future tuning with less privacy risk.
+- **Mailbox dashboard:** automatic scans write a redacted history containing sender, subject, verdict, score, top
+  reasons, attachment count, hashes, and analysis ID. Full email bodies are not stored by default.
 - **Fusion:** bounded weighted scoring maps to `Safe` (<35), `Suspicious` (35-69.9), or `Likely Phishing` (>=70).
 
 The parser reads plain-text MIME parts, caps input size, limits attachment inspection, and never performs network
@@ -107,6 +113,9 @@ also evaluates authentication results and sender/reply-to alignment.
 `POST /api/feedback` accepts an `analysis_id`, label, and optional note. Valid labels are `safe`, `suspicious`,
 `phishing`, `false_positive`, and `false_negative`.
 
+`GET /api/mailbox/history` returns recent redacted mailbox scan records for the dashboard. It does not include message
+bodies.
+
 Set `PHISHGUARD_API_KEY` to require `X-API-Key` on analysis endpoints in non-browser deployments.
 
 Organization context can be configured through environment variables:
@@ -133,8 +142,8 @@ Security properties:
 - Fetches with `BODY.PEEK[]`, so scanning does not mark a message as read.
 - Never follows URLs, renders HTML, executes attachments, or executes message content.
 - Caps message size and MIME-part count to reduce parser/resource-exhaustion risk.
-- Stores only SHA-256 fingerprints for deduplication and limited alert metadata, never message bodies, in a private
-  Docker volume.
+- Stores only SHA-256 fingerprints, redacted scan history, and limited alert metadata, never message bodies, in a
+  private Docker volume.
 - Supports an app password or OAuth2 bearer token exclusively through environment variables.
 - Logs errors by type without printing mailbox credentials or full message bodies.
 

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
@@ -22,9 +22,20 @@ type Result = {
   risk_factors: RiskFactor[];
   trust_signals: TrustSignal[];
   attachments: AttachmentFinding[];
-  highlights: { text: string; kind: string; explanation: string }[];
   recommendations: string[];
   model_version: string;
+};
+type MailboxRecord = {
+  uid: string;
+  fingerprint: string;
+  analysis_id: string;
+  scanned_at: string;
+  sender: string;
+  subject: string;
+  probability: number;
+  verdict: string;
+  risk_factors: string[];
+  attachment_count: number;
 };
 
 const samples = {
@@ -40,17 +51,34 @@ const samples = {
   },
 };
 
+function riskClass(probability: number) {
+  return probability >= 70 ? "danger" : probability >= 35 ? "warning" : "safe";
+}
+
 function App() {
   const [email, setEmail] = useState(samples.suspicious);
   const [result, setResult] = useState<Result | null>(null);
+  const [history, setHistory] = useState<MailboxRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
   const api = import.meta.env.VITE_API_URL || "http://localhost:8000";
-  const tone = useMemo(() => {
-    if (!result) return "neutral";
-    return result.probability >= 70 ? "danger" : result.probability >= 35 ? "warning" : "safe";
-  }, [result]);
+  const tone = useMemo(() => (result ? riskClass(result.probability) : "neutral"), [result]);
+
+  async function loadHistory() {
+    setHistoryLoading(true);
+    try {
+      const response = await fetch(`${api}/api/mailbox/history?limit=8`);
+      if (response.ok) setHistory(await response.json());
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadHistory();
+  }, []);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -83,6 +111,7 @@ function App() {
       const response = await fetch(`${api}/api/analyze-eml`, { method: "POST", body: form });
       if (!response.ok) throw new Error("Only readable, plain-text .eml files under the size limit are supported.");
       setResult(await response.json());
+      await loadHistory();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Upload failed.");
     } finally {
@@ -90,14 +119,17 @@ function App() {
     }
   }
 
-  async function sendFeedback(label: "false_positive" | "false_negative" | "safe" | "phishing") {
-    if (!result) return;
+  async function sendFeedback(
+    label: "false_positive" | "false_negative" | "safe" | "phishing",
+    analysisId = result?.analysis_id,
+  ) {
+    if (!analysisId) return;
     setFeedback("");
     try {
       const response = await fetch(`${api}/api/feedback`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ analysis_id: result.analysis_id, label, note: "" }),
+        body: JSON.stringify({ analysis_id: analysisId, label, note: "" }),
       });
       if (!response.ok) throw new Error("Feedback could not be saved.");
       setFeedback("Thanks — saved for future tuning.");
@@ -116,7 +148,7 @@ function App() {
       <section className="hero">
         <p className="eyebrow">Explainable threat intelligence</p>
         <h1>Know before you <span>click.</span></h1>
-        <p>Hybrid machine learning and security heuristics expose the signals hiding inside suspicious emails.</p>
+        <p>Hybrid machine learning, mailbox monitoring, and security heuristics expose the signals hiding inside suspicious emails.</p>
       </section>
 
       <section className="workspace">
@@ -140,53 +172,16 @@ function App() {
 
         <aside className={`panel report ${tone}`} aria-live="polite">
           {!result ? (
-            <div className="empty">
-              <div className="radar"><span /></div>
-              <h2>Awaiting signal</h2>
-              <p>Submit a message to map its risk indicators and receive an explainable verdict.</p>
-            </div>
+            <div className="empty"><div className="radar"><span /></div><h2>Awaiting signal</h2><p>Submit a message to map its risk indicators and receive an explainable verdict.</p></div>
           ) : (
             <>
               <div className="panel-title"><div><small>02 / ASSESSMENT</small><h2>Threat report</h2></div><b className="verdict">{result.verdict}</b></div>
-              <div className="score">
-                <div><strong>{result.probability.toFixed(0)}</strong><span>%</span></div>
-                <p>Phishing probability<small>ML {result.model_score}% · Rules {result.rule_score}%</small></p>
-              </div>
+              <div className="score"><div><strong>{result.probability.toFixed(0)}</strong><span>%</span></div><p>Phishing probability<small>ML {result.model_score}% · Rules {result.rule_score}%</small></p></div>
               <div className="meter"><span style={{width: `${result.probability}%`}} /></div>
-              {!!result.trust_signals.length && (
-                <>
-                  <h3>Organization context <span>{result.trust_signals.length}</span></h3>
-                  <div className="findings trust-list">
-                    {result.trust_signals.map((signal) => (
-                      <article key={signal.title}><i className="trust">✓</i><div><b>{signal.title}</b><p>{signal.detail}</p></div><span>{signal.adjustment}</span></article>
-                    ))}
-                  </div>
-                </>
-              )}
+              {!!result.trust_signals.length && <><h3>Organization context <span>{result.trust_signals.length}</span></h3><div className="findings trust-list">{result.trust_signals.map((signal) => <article key={signal.title}><i className="trust">✓</i><div><b>{signal.title}</b><p>{signal.detail}</p></div><span>{signal.adjustment}</span></article>)}</div></>}
               <h3>Detected signals <span>{result.risk_factors.length}</span></h3>
-              <div className="findings">
-                {result.risk_factors.length ? result.risk_factors.map((factor) => (
-                  <article key={factor.id}><i className={factor.severity}>!</i><div><b>{factor.title}</b><p>{factor.detail}</p></div><span>+{factor.weight}</span></article>
-                )) : <p className="quiet">No strong rule-based risk indicators were detected.</p>}
-              </div>
-              {!!result.attachments.length && (
-                <>
-                  <h3>Attachment triage <span>{result.attachments.length}</span></h3>
-                  <div className="findings">
-                    {result.attachments.map((attachment) => (
-                      <article key={attachment.sha256}>
-                        <i className={attachment.risk_level}>{attachment.risk_level === "low" ? "i" : "!"}</i>
-                        <div>
-                          <b>{attachment.filename}</b>
-                          <p>{attachment.reasons.join(" ")}</p>
-                          <small>{attachment.content_type} · {(attachment.size_bytes / 1024).toFixed(1)} KB · hash {attachment.sha256.slice(0, 12)}...</small>
-                        </div>
-                        <span>+{attachment.score}</span>
-                      </article>
-                    ))}
-                  </div>
-                </>
-              )}
+              <div className="findings">{result.risk_factors.length ? result.risk_factors.map((factor) => <article key={factor.id}><i className={factor.severity}>!</i><div><b>{factor.title}</b><p>{factor.detail}</p></div><span>+{factor.weight}</span></article>) : <p className="quiet">No strong rule-based risk indicators were detected.</p>}</div>
+              {!!result.attachments.length && <><h3>Attachment triage <span>{result.attachments.length}</span></h3><div className="findings">{result.attachments.map((attachment) => <article key={attachment.sha256}><i className={attachment.risk_level}>{attachment.risk_level === "low" ? "i" : "!"}</i><div><b>{attachment.filename}</b><p>{attachment.reasons.join(" ")}</p><small>{attachment.content_type} · {(attachment.size_bytes / 1024).toFixed(1)} KB · hash {attachment.sha256.slice(0, 12)}...</small></div><span>+{attachment.score}</span></article>)}</div></>}
               <h3>Recommended response</h3>
               <ol>{result.recommendations.map((item) => <li key={item}>{item}</li>)}</ol>
               <h3>Improve this detector</h3>
@@ -202,6 +197,30 @@ function App() {
           )}
         </aside>
       </section>
+
+      <section className="history-section panel">
+        <div className="panel-title">
+          <div><small>03 / MAILBOX MONITOR</small><h2>Recent scanned emails</h2></div>
+          <button className="ghost" type="button" onClick={loadHistory}>{historyLoading ? "Refreshing..." : "Refresh"}</button>
+        </div>
+        <p className="privacy-note">Stores sender, subject, score, verdict, reasons, attachment count, and hashes only — never full email bodies.</p>
+        <div className="history-grid">
+          {history.length ? history.map((item) => (
+            <article className={`history-card ${riskClass(item.probability)}`} key={`${item.uid}-${item.fingerprint}`}>
+              <div className="history-top"><b>{item.verdict}</b><span>{item.probability.toFixed(0)}%</span></div>
+              <h3>{item.subject || "(No subject)"}</h3>
+              <p>{item.sender}</p>
+              <small>{new Date(item.scanned_at).toLocaleString()} · Attachments: {item.attachment_count}</small>
+              <div className="reason-chips">{item.risk_factors.length ? item.risk_factors.map((reason) => <em key={reason}>{reason}</em>) : <em>No strong rule signals</em>}</div>
+              <div className="mini-feedback">
+                <button type="button" onClick={() => sendFeedback("false_positive", item.analysis_id)}>False positive</button>
+                <button type="button" onClick={() => sendFeedback("phishing", item.analysis_id)}>Correct phish</button>
+              </div>
+            </article>
+          )) : <p className="quiet">No mailbox history yet. Run the read-only mailbox scanner to populate this dashboard.</p>}
+        </div>
+      </section>
+
       <footer>This advisory tool statically inspects attachment metadata and risky file patterns, but never executes attachments or opens links.</footer>
     </main>
   );

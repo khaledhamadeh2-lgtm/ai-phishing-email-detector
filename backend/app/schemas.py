@@ -44,6 +44,19 @@ class FeedbackInput(BaseModel):
     note: str = Field(default="", max_length=1_000)
 
 
+class MailboxHistoryRecord(BaseModel):
+    uid: str
+    fingerprint: str
+    analysis_id: str
+    scanned_at: str
+    sender: str
+    subject: str
+    probability: float
+    verdict: str
+    risk_factors: list[str]
+    attachment_count: int
+
+
 class AnalysisResponse(BaseModel):
     analysis_id: str
     probability: float

@@ -4,6 +4,7 @@ import json
 import logging
 import ssl
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .config import settings
@@ -24,6 +25,20 @@ class MailboxAlert:
     risk_factors: list[str]
 
 
+@dataclass(frozen=True)
+class MailboxHistoryRecord:
+    uid: str
+    fingerprint: str
+    analysis_id: str
+    scanned_at: str
+    sender: str
+    subject: str
+    probability: float
+    verdict: str
+    risk_factors: list[str]
+    attachment_count: int
+
+
 def _load_seen(path: Path) -> set[str]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -37,6 +52,46 @@ def _save_seen(path: Path, seen: set[str]) -> None:
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps({"fingerprints": sorted(seen)[-10_000:]}), encoding="utf-8")
     temporary.replace(path)
+
+
+def _append_jsonl(path: Path, records: list[object]) -> None:
+    if not records:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        for record in records:
+            handle.write(json.dumps(asdict(record)) + "\n")
+
+
+def read_mailbox_history(limit: int = 50) -> list[MailboxHistoryRecord]:
+    path = Path(settings.mailbox_history_path)
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (FileNotFoundError, OSError):
+        return []
+    records: list[MailboxHistoryRecord] = []
+    for line in reversed(lines[-limit * 2 :]):
+        try:
+            raw = json.loads(line)
+            records.append(
+                MailboxHistoryRecord(
+                    uid=str(raw.get("uid", "")),
+                    fingerprint=str(raw.get("fingerprint", "")),
+                    analysis_id=str(raw.get("analysis_id", "")),
+                    scanned_at=str(raw.get("scanned_at", "")),
+                    sender=str(raw.get("sender", ""))[:500],
+                    subject=str(raw.get("subject", ""))[:1_000],
+                    probability=float(raw.get("probability", 0.0)),
+                    verdict=str(raw.get("verdict", "Unknown")),
+                    risk_factors=[str(item) for item in raw.get("risk_factors", [])][:8],
+                    attachment_count=int(raw.get("attachment_count", 0)),
+                )
+            )
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if len(records) >= limit:
+            break
+    return records
 
 
 def _authenticate(client: imaplib.IMAP4_SSL) -> None:
@@ -55,8 +110,10 @@ def scan_mailbox_once() -> list[MailboxAlert]:
     context = ssl.create_default_context()
     state_path = Path(settings.mailbox_state_path)
     alert_path = Path(settings.mailbox_alert_path)
+    history_path = Path(settings.mailbox_history_path)
     seen = _load_seen(state_path)
     alerts: list[MailboxAlert] = []
+    history: list[MailboxHistoryRecord] = []
 
     with imaplib.IMAP4_SSL(
         settings.mailbox_host,
@@ -93,7 +150,22 @@ def scan_mailbox_once() -> list[MailboxAlert]:
                 parsed = parse_eml(raw)
             except ValueError:
                 continue
-            result = analyze(parsed.sender, parsed.subject, parsed.body, parsed.headers)
+            result = analyze(parsed.sender, parsed.subject, parsed.body, parsed.headers, parsed.attachments)
+            top_reasons = [factor.title for factor in result.risk_factors[:5]]
+            history.append(
+                MailboxHistoryRecord(
+                    uid=uid,
+                    fingerprint=fingerprint,
+                    analysis_id=result.analysis_id,
+                    scanned_at=datetime.now(UTC).isoformat(),
+                    sender=parsed.sender[:500],
+                    subject=parsed.subject[:1_000],
+                    probability=result.probability,
+                    verdict=result.verdict,
+                    risk_factors=top_reasons,
+                    attachment_count=len(parsed.attachments),
+                )
+            )
             if result.probability >= settings.mailbox_alert_threshold:
                 alerts.append(
                     MailboxAlert(
@@ -103,14 +175,11 @@ def scan_mailbox_once() -> list[MailboxAlert]:
                         subject=parsed.subject[:1_000],
                         probability=result.probability,
                         verdict=result.verdict,
-                        risk_factors=[factor.title for factor in result.risk_factors],
+                        risk_factors=top_reasons,
                     )
                 )
 
     _save_seen(state_path, seen)
-    if alerts:
-        alert_path.parent.mkdir(parents=True, exist_ok=True)
-        with alert_path.open("a", encoding="utf-8") as handle:
-            for alert in alerts:
-                handle.write(json.dumps(asdict(alert)) + "\n")
+    _append_jsonl(history_path, history)
+    _append_jsonl(alert_path, alerts)
     return alerts

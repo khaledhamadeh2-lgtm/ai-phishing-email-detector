@@ -4,15 +4,16 @@ import secrets
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import settings
 from .detector import analyze
+from .mailbox import read_mailbox_history
 from .parser import parse_eml
-from .schemas import AnalysisResponse, EmailInput, FeedbackInput
+from .schemas import AnalysisResponse, EmailInput, FeedbackInput, MailboxHistoryRecord
 
 logging.basicConfig(level=settings.log_level)
 logger = logging.getLogger(__name__)
@@ -94,3 +95,12 @@ def submit_feedback(payload: FeedbackInput) -> dict[str, str]:
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
     return {"status": "recorded"}
+
+
+@app.get(
+    "/api/mailbox/history",
+    response_model=list[MailboxHistoryRecord],
+    dependencies=[Depends(require_api_key)],
+)
+def mailbox_history(limit: int = Query(default=50, ge=1, le=200)) -> list[MailboxHistoryRecord]:
+    return read_mailbox_history(limit)
