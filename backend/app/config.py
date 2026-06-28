@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     store_email_bodies: bool = False
     scan_retention_days: int = Field(default=30, ge=1, le=365)
     auth_mode: str = "demo-headers"
+    default_plan: str = "starter"
+    enforce_plan_limits: bool = False
+    starter_monthly_scan_limit: int = Field(default=250, ge=1, le=1_000_000)
+    team_monthly_scan_limit: int = Field(default=5_000, ge=1, le=1_000_000)
+    business_monthly_scan_limit: int = Field(default=50_000, ge=1, le=1_000_000)
+    enterprise_monthly_scan_limit: int = Field(default=250_000, ge=1, le=1_000_000)
     threat_intel_enabled: bool = False
     threat_intel_providers: str = "google_safe_browsing,virustotal,urlhaus"
     trusted_domains: str = ""

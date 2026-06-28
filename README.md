@@ -72,8 +72,9 @@ flowchart LR
   feedback log intentionally avoids storing full email bodies so it can support future tuning with less privacy risk.
 - **SaaS foundation:** analysis requests can carry `X-Org-ID` and `X-User-ID` context. Redacted scan history and
   feedback are persisted in SQLite for local demos, with a clean migration path to managed PostgreSQL.
-- **Product dashboard:** workspace settings, dashboard metrics, scan history, and safe threat-intelligence preview
-  endpoints model the structure needed for a future SaaS.
+- **Product dashboard:** workspace settings, dashboard metrics, scan history, usage metering, subscription scaffolding,
+  audit logs, compliance export/delete, security posture, and safe threat-intelligence preview endpoints model the
+  structure needed for a future SaaS.
 - **Mailbox dashboard:** automatic scans write a redacted history containing sender, subject, verdict, score, top
   reasons, attachment count, hashes, and analysis ID. Full email bodies are not stored by default.
 - **Fusion:** bounded weighted scoring maps to `Safe` (<35), `Suspicious` (35-69.9), or `Likely Phishing` (>=70).
@@ -132,6 +133,19 @@ privacy mode, and mailbox alert threshold for a workspace.
 `GET /api/dashboard/metrics` returns SaaS-style summary metrics such as total scans, verdict counts, false positives,
 attachment scans, and top risk factors.
 
+`GET /api/billing/subscription`, `PUT /api/billing/subscription`, and `GET /api/billing/usage` provide billing-ready
+plan state and monthly scan usage. Plan enforcement is off by default for demos and can be enabled with
+`PHISHGUARD_ENFORCE_PLAN_LIMITS=true`.
+
+`GET /api/audit/events` returns tenant-scoped audit events for scans, feedback, settings changes, subscription changes,
+and compliance actions.
+
+`GET /api/compliance/export` returns redacted tenant data for review or account export. `DELETE /api/compliance/data`
+deletes tenant scan history and optional feedback/audit records after an explicit organization confirmation payload.
+
+`GET /api/security/posture` summarizes active controls and production launch gaps, making it easier to review whether
+the API is safe to expose beyond local demos.
+
 `GET /api/scans/history` returns recent tenant-scoped, redacted scan records. Use `X-Org-ID` and `X-User-ID` headers
 to simulate workspace/user context in local demos. The response includes a body hash, not the message body.
 
@@ -156,6 +170,8 @@ PHISHGUARD_DATABASE_PATH=/tmp/phishguard.sqlite3
 PHISHGUARD_STORE_EMAIL_BODIES=false
 PHISHGUARD_SCAN_RETENTION_DAYS=30
 PHISHGUARD_AUTH_MODE=demo-headers
+PHISHGUARD_DEFAULT_PLAN=starter
+PHISHGUARD_ENFORCE_PLAN_LIMITS=false
 PHISHGUARD_THREAT_INTEL_ENABLED=false
 PHISHGUARD_THREAT_INTEL_PROVIDERS=google_safe_browsing,virustotal,urlhaus
 ```
@@ -219,9 +235,10 @@ Copy `.env.example` to `.env` only when overriding defaults. Never commit real e
 ## SaaS roadmap
 
 The current implementation includes the first product-grade foundation: tenant-aware context, redacted persisted scan
-history, feedback events, workspace settings, dashboard metrics, safe threat-intelligence scaffolding, retention
+history, feedback events, workspace settings, dashboard metrics, subscription and usage-metering scaffolding, audit
+events, compliance export/delete workflows, security posture reporting, safe threat-intelligence scaffolding, retention
 settings, and Docker volume persistence. The path to real accounts, PostgreSQL, Gmail/Outlook OAuth,
-threat-intelligence APIs, production deployment, and billing is documented in
+production threat-intelligence APIs, deployment, and Stripe billing is documented in
 [`docs/saas-roadmap.md`](docs/saas-roadmap.md). A practical launch checklist is in
 [`docs/deployment-guide.md`](docs/deployment-guide.md).
 
@@ -232,6 +249,9 @@ threat-intelligence APIs, production deployment, and billing is documented in
   uploaded to third-party scanners.
 - Feedback stores analysis IDs, labels, timestamps, and optional notes instead of full private email bodies.
 - Scan history stores redacted metadata and SHA-256 body hashes by default, not full message bodies.
+- Compliance export/delete endpoints operate on tenant-scoped redacted records and require explicit org confirmation
+  before deletion.
+- Audit events make settings, feedback, scans, subscription updates, and compliance actions traceable.
 - Input is validated and size-limited; errors avoid echoing submitted email content into logs.
 - API endpoints include simple in-memory rate limiting to reduce accidental abuse in small deployments.
 - Local Docker demos persist redacted history in a named volume; delete the volume to clear local state.

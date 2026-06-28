@@ -20,6 +20,8 @@ PHISHGUARD_DATABASE_URL=postgresql://user:password@host:5432/phishguard
 PHISHGUARD_STORE_EMAIL_BODIES=false
 PHISHGUARD_SCAN_RETENTION_DAYS=30
 PHISHGUARD_AUTH_MODE=provider
+PHISHGUARD_DEFAULT_PLAN=starter
+PHISHGUARD_ENFORCE_PLAN_LIMITS=false
 PHISHGUARD_THREAT_INTEL_ENABLED=false
 ```
 
@@ -37,6 +39,11 @@ users.
 - Configure uptime monitoring.
 - Configure error monitoring.
 - Define data retention and deletion flows.
+- Review `/api/security/posture` before launch and close every high-priority gap.
+- Decide whether plan limits should soft-warn or hard-block scans before setting
+  `PHISHGUARD_ENFORCE_PLAN_LIMITS=true`.
+- Connect `/api/billing/subscription` to Stripe or another billing system instead of manually updating plans.
+- Include `/api/audit/events` in support/admin workflows so sensitive configuration changes are traceable.
 - Add provider-specific privacy notices for threat-intelligence APIs.
 - Add billing only after usage tracking and org membership are stable.
 

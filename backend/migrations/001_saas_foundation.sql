@@ -43,3 +43,28 @@ CREATE TABLE IF NOT EXISTS org_settings (
     mailbox_alert_threshold REAL NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS org_subscriptions (
+    org_id TEXT PRIMARY KEY,
+    plan TEXT NOT NULL,
+    monthly_scan_limit INTEGER NOT NULL,
+    mailbox_accounts_limit INTEGER NOT NULL,
+    retention_days_limit INTEGER NOT NULL,
+    threat_intel_enabled INTEGER NOT NULL,
+    audit_log_enabled INTEGER NOT NULL,
+    billing_status TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS audit_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    org_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target TEXT NOT NULL,
+    metadata_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_events_org_time
+ON audit_events(org_id, created_at DESC);

@@ -9,7 +9,18 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .config import settings
-from .schemas import AnalysisResponse, DashboardMetrics, OrgSettings, ScanHistoryRecord
+from .schemas import (
+    AnalysisResponse,
+    AuditEvent,
+    ComplianceExport,
+    DashboardMetrics,
+    DataDeletionResponse,
+    OrgSettings,
+    ScanHistoryRecord,
+    SecurityPosture,
+    SubscriptionPlan,
+    UsageSummary,
+)
 
 
 @dataclass(frozen=True)
@@ -99,6 +110,37 @@ def init_storage() -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS org_subscriptions (
+                org_id TEXT PRIMARY KEY,
+                plan TEXT NOT NULL,
+                monthly_scan_limit INTEGER NOT NULL,
+                mailbox_accounts_limit INTEGER NOT NULL,
+                retention_days_limit INTEGER NOT NULL,
+                threat_intel_enabled INTEGER NOT NULL,
+                audit_log_enabled INTEGER NOT NULL,
+                billing_status TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                org_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                target TEXT NOT NULL,
+                metadata_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_audit_events_org_time ON audit_events(org_id, created_at DESC)"
+        )
 
 
 def enforce_retention() -> None:
@@ -149,6 +191,12 @@ def record_scan(
             ),
         )
     enforce_retention()
+    record_audit_event(
+        context,
+        "scan.created",
+        result.analysis_id,
+        {"source": source, "verdict": result.verdict, "probability": round(result.probability, 2)},
+    )
 
 
 def list_scan_history(context: RequestContext, limit: int = 50) -> list[ScanHistoryRecord]:
@@ -198,6 +246,7 @@ def record_feedback(context: RequestContext, analysis_id: str, label: str, note:
             """,
             (analysis_id, context.org_id, context.user_id, label, note, datetime.now(UTC).isoformat()),
         )
+    record_audit_event(context, "feedback.created", analysis_id, {"label": label})
 
 
 def get_org_settings(context: RequestContext) -> OrgSettings:
@@ -263,7 +312,277 @@ def save_org_settings(context: RequestContext, payload: OrgSettings) -> OrgSetti
                 datetime.now(UTC).isoformat(),
             ),
         )
+    record_audit_event(
+        context,
+        "settings.updated",
+        context.org_id,
+        {"sensitivity": normalized.sensitivity, "retention_days": normalized.scan_retention_days},
+    )
     return normalized
+
+
+def get_subscription(context: RequestContext) -> SubscriptionPlan:
+    if not settings.database_enabled:
+        return _default_subscription(context.org_id)
+    init_storage()
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT * FROM org_subscriptions WHERE org_id = ?",
+            (context.org_id,),
+        ).fetchone()
+    if row is None:
+        return _default_subscription(context.org_id)
+    return SubscriptionPlan(
+        org_id=row["org_id"],
+        plan=row["plan"],
+        monthly_scan_limit=row["monthly_scan_limit"],
+        mailbox_accounts_limit=row["mailbox_accounts_limit"],
+        retention_days_limit=row["retention_days_limit"],
+        threat_intel_enabled=bool(row["threat_intel_enabled"]),
+        audit_log_enabled=bool(row["audit_log_enabled"]),
+        billing_status=row["billing_status"],
+    )
+
+
+def save_subscription(context: RequestContext, payload: SubscriptionPlan) -> SubscriptionPlan:
+    if not settings.database_enabled:
+        return payload
+    init_storage()
+    normalized = SubscriptionPlan(
+        org_id=context.org_id,
+        plan=payload.plan,
+        monthly_scan_limit=payload.monthly_scan_limit,
+        mailbox_accounts_limit=payload.mailbox_accounts_limit,
+        retention_days_limit=payload.retention_days_limit,
+        threat_intel_enabled=payload.threat_intel_enabled,
+        audit_log_enabled=payload.audit_log_enabled,
+        billing_status=payload.billing_status,
+    )
+    with _connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO org_subscriptions (
+                org_id, plan, monthly_scan_limit, mailbox_accounts_limit, retention_days_limit,
+                threat_intel_enabled, audit_log_enabled, billing_status, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(org_id) DO UPDATE SET
+                plan = excluded.plan,
+                monthly_scan_limit = excluded.monthly_scan_limit,
+                mailbox_accounts_limit = excluded.mailbox_accounts_limit,
+                retention_days_limit = excluded.retention_days_limit,
+                threat_intel_enabled = excluded.threat_intel_enabled,
+                audit_log_enabled = excluded.audit_log_enabled,
+                billing_status = excluded.billing_status,
+                updated_at = excluded.updated_at
+            """,
+            (
+                normalized.org_id,
+                normalized.plan,
+                normalized.monthly_scan_limit,
+                normalized.mailbox_accounts_limit,
+                normalized.retention_days_limit,
+                int(normalized.threat_intel_enabled),
+                int(normalized.audit_log_enabled),
+                normalized.billing_status,
+                datetime.now(UTC).isoformat(),
+            ),
+        )
+    record_audit_event(
+        context,
+        "subscription.updated",
+        context.org_id,
+        {"plan": normalized.plan, "monthly_scan_limit": normalized.monthly_scan_limit},
+    )
+    return normalized
+
+
+def usage_summary(context: RequestContext) -> UsageSummary:
+    subscription = get_subscription(context)
+    period_start, period_end = _monthly_period()
+    scans_used = _count_scans(context, period_start, period_end)
+    remaining = max(subscription.monthly_scan_limit - scans_used, 0)
+    return UsageSummary(
+        org_id=context.org_id,
+        plan=subscription.plan,
+        period_start=period_start.isoformat(),
+        period_end=period_end.isoformat(),
+        scans_used=scans_used,
+        monthly_scan_limit=subscription.monthly_scan_limit,
+        scans_remaining=remaining,
+        usage_percent=round((scans_used / subscription.monthly_scan_limit) * 100, 2),
+        limit_enforced=settings.enforce_plan_limits,
+    )
+
+
+def can_create_scan(context: RequestContext) -> bool:
+    if not settings.enforce_plan_limits:
+        return True
+    summary = usage_summary(context)
+    return summary.scans_remaining > 0
+
+
+def record_audit_event(
+    context: RequestContext,
+    action: str,
+    target: str,
+    metadata: dict[str, str | int | float | bool] | None = None,
+) -> None:
+    if not settings.database_enabled:
+        return
+    init_storage()
+    with _connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO audit_events (org_id, user_id, action, target, metadata_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                context.org_id,
+                context.user_id,
+                action,
+                target,
+                json.dumps(metadata or {}, ensure_ascii=False),
+                datetime.now(UTC).isoformat(),
+            ),
+        )
+
+
+def list_audit_events(context: RequestContext, limit: int = 100) -> list[AuditEvent]:
+    if not settings.database_enabled:
+        return []
+    init_storage()
+    with _connect() as connection:
+        rows = connection.execute(
+            """
+            SELECT id, org_id, user_id, action, target, metadata_json, created_at
+            FROM audit_events
+            WHERE org_id = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (context.org_id, limit),
+        ).fetchall()
+    return [
+        AuditEvent(
+            event_id=row["id"],
+            org_id=row["org_id"],
+            user_id=row["user_id"],
+            action=row["action"],
+            target=row["target"],
+            metadata=json.loads(row["metadata_json"]),
+            created_at=row["created_at"],
+        )
+        for row in rows
+    ]
+
+
+def compliance_export(context: RequestContext) -> ComplianceExport:
+    if not settings.database_enabled:
+        return ComplianceExport(
+            org_id=context.org_id,
+            generated_at=datetime.now(UTC).isoformat(),
+            scans=[],
+            feedback_count=0,
+            audit_events=[],
+            privacy_note="Database storage is disabled, so there is no persisted tenant data to export.",
+        )
+    init_storage()
+    with _connect() as connection:
+        feedback_count = connection.execute(
+            "SELECT COUNT(*) FROM feedback_events WHERE org_id = ?",
+            (context.org_id,),
+        ).fetchone()[0]
+    record_audit_event(context, "compliance.exported", context.org_id, {"format": "json"})
+    return ComplianceExport(
+        org_id=context.org_id,
+        generated_at=datetime.now(UTC).isoformat(),
+        scans=list_scan_history(context, limit=500),
+        feedback_count=feedback_count,
+        audit_events=list_audit_events(context, limit=200),
+        privacy_note=(
+            "Export contains redacted scan metadata and audit events. "
+            "Full email bodies are excluded by default."
+        ),
+    )
+
+
+def delete_org_data(
+    context: RequestContext,
+    include_feedback: bool = True,
+    include_audit_logs: bool = False,
+) -> DataDeletionResponse:
+    if not settings.database_enabled:
+        return DataDeletionResponse(
+            org_id=context.org_id,
+            deleted_scans=0,
+            deleted_feedback=0,
+            deleted_audit_events=0,
+            status="database-disabled",
+        )
+    init_storage()
+    with _connect() as connection:
+        deleted_scans = connection.execute(
+            "DELETE FROM scan_events WHERE org_id = ?",
+            (context.org_id,),
+        ).rowcount
+        deleted_feedback = 0
+        deleted_audit = 0
+        if include_feedback:
+            deleted_feedback = connection.execute(
+                "DELETE FROM feedback_events WHERE org_id = ?",
+                (context.org_id,),
+            ).rowcount
+        if include_audit_logs:
+            deleted_audit = connection.execute(
+                "DELETE FROM audit_events WHERE org_id = ?",
+                (context.org_id,),
+            ).rowcount
+    if not include_audit_logs:
+        record_audit_event(
+            context,
+            "compliance.deleted",
+            context.org_id,
+            {"deleted_scans": deleted_scans, "deleted_feedback": deleted_feedback},
+        )
+    return DataDeletionResponse(
+        org_id=context.org_id,
+        deleted_scans=deleted_scans,
+        deleted_feedback=deleted_feedback,
+        deleted_audit_events=deleted_audit,
+        status="deleted",
+    )
+
+
+def security_posture(context: RequestContext) -> SecurityPosture:
+    controls = [
+        "Submitted links are parsed but never visited.",
+        "Attachments are statically triaged and never executed.",
+        "Scan history stores redacted metadata and a body hash by default.",
+        "Tenant headers isolate demo workspace data.",
+        "Rate limiting and security headers are enabled.",
+    ]
+    next_steps = [
+        "Replace demo headers with a production identity provider.",
+        "Terminate TLS at the edge and restrict CORS to deployed domains.",
+        "Move SQLite demo storage to managed PostgreSQL before public launch.",
+        "Connect paid threat-intel providers only after privacy notices are approved.",
+    ]
+    if settings.api_key:
+        controls.append("API key protection is enabled.")
+    else:
+        next_steps.insert(0, "Set PHISHGUARD_API_KEY before exposing the API outside localhost.")
+    return SecurityPosture(
+        org_id=context.org_id,
+        api_key_required=bool(settings.api_key),
+        auth_mode=settings.auth_mode,
+        database_enabled=settings.database_enabled,
+        store_email_bodies=get_org_settings(context).store_email_bodies,
+        threat_intel_enabled=settings.threat_intel_enabled,
+        rate_limit=f"{settings.rate_limit_requests} requests / {settings.rate_limit_window_seconds}s",
+        controls=controls,
+        recommended_next_steps=next_steps,
+    )
 
 
 def dashboard_metrics(context: RequestContext) -> DashboardMetrics:
@@ -321,3 +640,48 @@ def _default_org_settings(org_id: str) -> OrgSettings:
         store_email_bodies=settings.store_email_bodies,
         mailbox_alert_threshold=settings.mailbox_alert_threshold,
     )
+
+
+def _default_subscription(org_id: str) -> SubscriptionPlan:
+    limits = {
+        "starter": settings.starter_monthly_scan_limit,
+        "team": settings.team_monthly_scan_limit,
+        "business": settings.business_monthly_scan_limit,
+        "enterprise": settings.enterprise_monthly_scan_limit,
+    }
+    plan = settings.default_plan if settings.default_plan in limits else "starter"
+    return SubscriptionPlan(
+        org_id=org_id,
+        plan=plan,
+        monthly_scan_limit=limits[plan],
+        mailbox_accounts_limit=1 if plan == "starter" else 5 if plan == "team" else 50,
+        retention_days_limit=30 if plan == "starter" else 90 if plan == "team" else 365,
+        threat_intel_enabled=plan in {"business", "enterprise"} or settings.threat_intel_enabled,
+        audit_log_enabled=True,
+        billing_status="trial",
+    )
+
+
+def _monthly_period() -> tuple[datetime, datetime]:
+    now = datetime.now(UTC)
+    period_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if period_start.month == 12:
+        period_end = period_start.replace(year=period_start.year + 1, month=1)
+    else:
+        period_end = period_start.replace(month=period_start.month + 1)
+    return period_start, period_end
+
+
+def _count_scans(context: RequestContext, period_start: datetime, period_end: datetime) -> int:
+    if not settings.database_enabled:
+        return 0
+    init_storage()
+    with _connect() as connection:
+        return connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM scan_events
+            WHERE org_id = ? AND scanned_at >= ? AND scanned_at < ?
+            """,
+            (context.org_id, period_start.isoformat(), period_end.isoformat()),
+        ).fetchone()[0]

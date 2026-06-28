@@ -123,6 +123,117 @@ def test_current_user_settings_metrics_and_threat_intel(tmp_path) -> None:
     assert intel.json()["enabled"] is False
 
 
+def test_subscription_usage_audit_and_compliance_controls(tmp_path) -> None:
+    database = tmp_path / "saas.sqlite3"
+    _RATE_LIMIT_BUCKETS.clear()
+    headers = {"X-Org-ID": "acme", "X-User-ID": "owner-1"}
+    with (
+        patch("app.storage.settings.database_path", str(database)),
+        patch("app.storage.settings.database_enabled", True),
+        patch("app.storage.settings.enforce_plan_limits", False),
+    ):
+        subscription = client.put(
+            "/api/billing/subscription",
+            headers=headers,
+            json={
+                "org_id": "client-supplied-is-ignored",
+                "plan": "team",
+                "monthly_scan_limit": 5000,
+                "mailbox_accounts_limit": 5,
+                "retention_days_limit": 90,
+                "threat_intel_enabled": False,
+                "audit_log_enabled": True,
+                "billing_status": "trial",
+            },
+        )
+        client.post(
+            "/api/analyze",
+            headers=headers,
+            json={
+                "sender": "Security <security@example.org>",
+                "subject": "Review",
+                "body": "Please review the normal security notes.",
+            },
+        )
+        usage = client.get("/api/billing/usage", headers=headers)
+        audit = client.get("/api/audit/events?limit=10", headers=headers)
+        posture = client.get("/api/security/posture", headers=headers)
+        exported = client.get("/api/compliance/export", headers=headers)
+        deleted = client.request(
+            "DELETE",
+            "/api/compliance/data",
+            headers=headers,
+            json={"confirm_org_id": "acme", "include_feedback": True, "include_audit_logs": False},
+        )
+        history_after_delete = client.get("/api/scans/history", headers=headers)
+
+    assert subscription.status_code == 200
+    assert subscription.json()["org_id"] == "acme"
+    assert subscription.json()["plan"] == "team"
+    assert usage.status_code == 200
+    assert usage.json()["scans_used"] == 1
+    assert usage.json()["monthly_scan_limit"] == 5000
+    assert audit.status_code == 200
+    assert any(event["action"] == "scan.created" for event in audit.json())
+    assert posture.status_code == 200
+    assert posture.json()["database_enabled"] is True
+    assert exported.status_code == 200
+    assert exported.json()["scans"][0]["org_id"] == "acme"
+    assert "Full email bodies are excluded" in exported.json()["privacy_note"]
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted_scans"] == 1
+    assert history_after_delete.json() == []
+
+
+def test_plan_limit_can_block_new_scans(tmp_path) -> None:
+    database = tmp_path / "limits.sqlite3"
+    _RATE_LIMIT_BUCKETS.clear()
+    headers = {"X-Org-ID": "acme", "X-User-ID": "owner-1"}
+    with (
+        patch("app.storage.settings.database_path", str(database)),
+        patch("app.storage.settings.database_enabled", True),
+        patch("app.storage.settings.enforce_plan_limits", True),
+    ):
+        client.put(
+            "/api/billing/subscription",
+            headers=headers,
+            json={
+                "org_id": "acme",
+                "plan": "starter",
+                "monthly_scan_limit": 1,
+                "mailbox_accounts_limit": 1,
+                "retention_days_limit": 30,
+                "threat_intel_enabled": False,
+                "audit_log_enabled": True,
+                "billing_status": "trial",
+            },
+        )
+        first = client.post("/api/analyze", headers=headers, json={"body": "normal message"})
+        second = client.post("/api/analyze", headers=headers, json={"body": "another message"})
+
+    assert first.status_code == 200
+    assert second.status_code == 402
+    assert second.json()["detail"] == "Monthly scan limit reached for this workspace."
+
+
+def test_compliance_delete_requires_matching_org_confirmation(tmp_path) -> None:
+    database = tmp_path / "delete-confirm.sqlite3"
+    _RATE_LIMIT_BUCKETS.clear()
+    with (
+        patch("app.storage.settings.database_path", str(database)),
+        patch("app.storage.settings.database_enabled", True),
+    ):
+        response = client.request(
+            "DELETE",
+            "/api/compliance/data",
+            headers={"X-Org-ID": "acme"},
+            json={"confirm_org_id": "other", "include_feedback": True, "include_audit_logs": False},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Confirmation org ID does not match this workspace."
+
+
 def test_eml_upload() -> None:
     eml = b"From: sender@example.org\r\nSubject: Hello\r\n\r\nA normal plain text message."
     response = client.post("/api/analyze-eml", files={"file": ("sample.eml", eml, "message/rfc822")})

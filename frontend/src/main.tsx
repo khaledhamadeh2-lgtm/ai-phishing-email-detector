@@ -68,6 +68,42 @@ type ThreatIntelPreview = {
   findings: { provider: string; status: string; detail: string }[];
   privacy_note: string;
 };
+type Subscription = {
+  org_id: string;
+  plan: string;
+  monthly_scan_limit: number;
+  mailbox_accounts_limit: number;
+  retention_days_limit: number;
+  threat_intel_enabled: boolean;
+  audit_log_enabled: boolean;
+  billing_status: string;
+};
+type UsageSummary = {
+  org_id: string;
+  plan: string;
+  scans_used: number;
+  monthly_scan_limit: number;
+  scans_remaining: number;
+  usage_percent: number;
+  limit_enforced: boolean;
+};
+type AuditEvent = {
+  event_id: number;
+  user_id: string;
+  action: string;
+  target: string;
+  created_at: string;
+};
+type SecurityPosture = {
+  api_key_required: boolean;
+  auth_mode: string;
+  database_enabled: boolean;
+  store_email_bodies: boolean;
+  threat_intel_enabled: boolean;
+  rate_limit: string;
+  controls: string[];
+  recommended_next_steps: string[];
+};
 
 const samples = {
   suspicious: {
@@ -110,6 +146,10 @@ function App() {
   const [history, setHistory] = useState<ScanRecord[]>([]);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [intel, setIntel] = useState<ThreatIntelPreview | null>(null);
+  const [subscription, setSubscription] = useState<Subscription | null>(null);
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
+  const [audit, setAudit] = useState<AuditEvent[]>([]);
+  const [posture, setPosture] = useState<SecurityPosture | null>(null);
   const [loading, setLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState("");
@@ -124,14 +164,30 @@ function App() {
   async function refreshProductState() {
     setHistoryLoading(true);
     try {
-      const [settingsResponse, historyResponse, metricsResponse] = await Promise.all([
+      const [
+        settingsResponse,
+        historyResponse,
+        metricsResponse,
+        subscriptionResponse,
+        usageResponse,
+        auditResponse,
+        postureResponse,
+      ] = await Promise.all([
         fetch(`${api}/api/org/settings`, { headers: tenantHeaders() }),
         fetch(`${api}/api/scans/history?limit=8`, { headers: tenantHeaders() }),
         fetch(`${api}/api/dashboard/metrics`, { headers: tenantHeaders() }),
+        fetch(`${api}/api/billing/subscription`, { headers: tenantHeaders() }),
+        fetch(`${api}/api/billing/usage`, { headers: tenantHeaders() }),
+        fetch(`${api}/api/audit/events?limit=6`, { headers: tenantHeaders() }),
+        fetch(`${api}/api/security/posture`, { headers: tenantHeaders() }),
       ]);
       if (settingsResponse.ok) setSettings(await settingsResponse.json());
       if (historyResponse.ok) setHistory(await historyResponse.json());
       if (metricsResponse.ok) setMetrics(await metricsResponse.json());
+      if (subscriptionResponse.ok) setSubscription(await subscriptionResponse.json());
+      if (usageResponse.ok) setUsage(await usageResponse.json());
+      if (auditResponse.ok) setAudit(await auditResponse.json());
+      if (postureResponse.ok) setPosture(await postureResponse.json());
     } finally {
       setHistoryLoading(false);
     }
@@ -248,7 +304,7 @@ function App() {
 
       <section className="metrics-section panel">
         <div className="panel-title">
-          <div><small>00 / PRODUCT METRICS</small><h2>{workspace.orgId || "demo-org"} dashboard</h2></div>
+          <div><small>00 / PRODUCT CONTROL PLANE</small><h2>{workspace.orgId || "demo-org"} dashboard</h2></div>
           <button className="ghost" type="button" onClick={refreshProductState}>{historyLoading ? "Refreshing..." : "Refresh"}</button>
         </div>
         <div className="metric-grid">
@@ -256,6 +312,24 @@ function App() {
           <article><b>{metrics?.likely_phishing_count ?? 0}</b><span>Likely phishing</span></article>
           <article><b>{metrics?.suspicious_count ?? 0}</b><span>Suspicious</span></article>
           <article><b>{metrics?.false_positive_count ?? 0}</b><span>False positives</span></article>
+        </div>
+        <div className="business-grid">
+          <article>
+            <small>PLAN</small>
+            <b>{subscription?.plan ?? "starter"}</b>
+            <span>{subscription?.billing_status ?? "trial"} · {usage?.scans_remaining ?? 0} scans left</span>
+          </article>
+          <article>
+            <small>USAGE</small>
+            <b>{usage?.usage_percent ?? 0}%</b>
+            <span>{usage?.scans_used ?? 0} / {usage?.monthly_scan_limit ?? subscription?.monthly_scan_limit ?? 250} monthly scans</span>
+            <div className="usage-bar"><i style={{width: `${Math.min(usage?.usage_percent ?? 0, 100)}%`}} /></div>
+          </article>
+          <article>
+            <small>SECURITY</small>
+            <b>{posture?.api_key_required ? "Locked" : "Demo"}</b>
+            <span>{posture?.auth_mode ?? "demo-headers"} · {posture?.rate_limit ?? "rate limited"}</span>
+          </article>
         </div>
         {!!metrics?.top_risk_factors.length && <div className="reason-chips metric-risks">{metrics.top_risk_factors.map((item) => <em key={item.title}>{item.title}: {item.count}</em>)}</div>}
       </section>
@@ -349,6 +423,33 @@ function App() {
               </div>
             </article>
           )) : <p className="quiet">No persisted scan history yet. Analyze a message to populate this tenant dashboard.</p>}
+        </div>
+      </section>
+
+      <section className="ops-section panel">
+        <div className="panel-title">
+          <div><small>05 / SECURITY OPERATIONS</small><h2>Audit, compliance, and launch readiness</h2></div>
+        </div>
+        <div className="ops-grid">
+          <article>
+            <h3>Active controls</h3>
+            <ul>{(posture?.controls ?? []).slice(0, 5).map((item) => <li key={item}>{item}</li>)}</ul>
+          </article>
+          <article>
+            <h3>Next launch steps</h3>
+            <ul>{(posture?.recommended_next_steps ?? []).slice(0, 5).map((item) => <li key={item}>{item}</li>)}</ul>
+          </article>
+          <article>
+            <h3>Recent audit events</h3>
+            <div className="audit-list">
+              {audit.length ? audit.map((event) => (
+                <p key={event.event_id}>
+                  <b>{event.action}</b>
+                  <span>{event.user_id} · {new Date(event.created_at).toLocaleString()}</span>
+                </p>
+              )) : <p className="quiet">No audit events yet. Save settings or scan a message to populate the trail.</p>}
+            </div>
+          </article>
         </div>
       </section>
 

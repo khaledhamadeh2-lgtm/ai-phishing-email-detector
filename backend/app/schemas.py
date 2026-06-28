@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pydantic import BaseModel, Field
 
 
@@ -59,6 +61,74 @@ class CurrentUser(BaseModel):
     role: str
     auth_mode: str
     permissions: list[str]
+
+
+class SubscriptionPlan(BaseModel):
+    org_id: str
+    plan: str = Field(default="starter", pattern="^(starter|team|business|enterprise)$")
+    monthly_scan_limit: int = Field(default=250, ge=1, le=1_000_000)
+    mailbox_accounts_limit: int = Field(default=1, ge=0, le=10_000)
+    retention_days_limit: int = Field(default=30, ge=1, le=3650)
+    threat_intel_enabled: bool = False
+    audit_log_enabled: bool = True
+    billing_status: str = Field(default="trial", pattern="^(trial|active|past_due|paused)$")
+
+
+class UsageSummary(BaseModel):
+    org_id: str
+    plan: str
+    period_start: str
+    period_end: str
+    scans_used: int
+    monthly_scan_limit: int
+    scans_remaining: int
+    usage_percent: float
+    limit_enforced: bool
+
+
+class AuditEvent(BaseModel):
+    event_id: int
+    org_id: str
+    user_id: str
+    action: str
+    target: str
+    created_at: str
+    metadata: dict[str, str | int | float | bool]
+
+
+class ComplianceExport(BaseModel):
+    org_id: str
+    generated_at: str
+    scans: list[ScanHistoryRecord]
+    feedback_count: int
+    audit_events: list[AuditEvent]
+    privacy_note: str
+
+
+class DataDeletionRequest(BaseModel):
+    confirm_org_id: str = Field(min_length=1, max_length=120)
+    include_feedback: bool = True
+    include_audit_logs: bool = False
+
+
+class DataDeletionResponse(BaseModel):
+    org_id: str
+    deleted_scans: int
+    deleted_feedback: int
+    deleted_audit_events: int
+    status: str
+
+
+class SecurityPosture(BaseModel):
+    org_id: str
+    api_key_required: bool
+    auth_mode: str
+    database_enabled: bool
+    store_email_bodies: bool
+    threat_intel_enabled: bool
+    rate_limit: str
+    controls: list[str]
+    recommended_next_steps: list[str]
 
 
 class OrgSettings(BaseModel):

@@ -18,25 +18,40 @@ from .mailbox import read_mailbox_history
 from .parser import parse_eml
 from .schemas import (
     AnalysisResponse,
+    AuditEvent,
+    ComplianceExport,
     CurrentUser,
     DashboardMetrics,
+    DataDeletionRequest,
+    DataDeletionResponse,
     EmailInput,
     FeedbackInput,
     MailboxHistoryRecord,
     OrgSettings,
     ScanHistoryRecord,
+    SecurityPosture,
+    SubscriptionPlan,
     ThreatIntelPreview,
+    UsageSummary,
 )
 from .storage import (
     RequestContext,
+    can_create_scan,
+    compliance_export,
     dashboard_metrics,
+    delete_org_data,
     get_org_settings,
+    get_subscription,
     init_storage,
+    list_audit_events,
     list_scan_history,
     normalize_context,
     record_feedback,
     record_scan,
     save_org_settings,
+    save_subscription,
+    security_posture,
+    usage_summary,
 )
 from .threat_intel import preview_threat_intel
 
@@ -100,7 +115,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.origins,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["Content-Type", "X-API-Key", "X-Org-ID", "X-User-ID"],
 )
 
@@ -122,7 +137,15 @@ def me(context: RequestContext = Depends(request_context)) -> CurrentUser:
         user_id=context.user_id,
         role=context.role,
         auth_mode=settings.auth_mode,
-        permissions=["scan:write", "scan:read", "settings:read", "feedback:write"],
+        permissions=[
+            "scan:write",
+            "scan:read",
+            "settings:read",
+            "settings:write",
+            "feedback:write",
+            "audit:read",
+            "compliance:export",
+        ],
     )
 
 
@@ -139,11 +162,35 @@ def update_org_settings(
     return save_org_settings(context, payload)
 
 
+@app.get(
+    "/api/billing/subscription", response_model=SubscriptionPlan, dependencies=[Depends(require_api_key)]
+)
+def subscription(context: RequestContext = Depends(request_context)) -> SubscriptionPlan:
+    return get_subscription(context)
+
+
+@app.put(
+    "/api/billing/subscription", response_model=SubscriptionPlan, dependencies=[Depends(require_api_key)]
+)
+def update_subscription(
+    payload: SubscriptionPlan,
+    context: RequestContext = Depends(request_context),
+) -> SubscriptionPlan:
+    return save_subscription(context, payload)
+
+
+@app.get("/api/billing/usage", response_model=UsageSummary, dependencies=[Depends(require_api_key)])
+def usage(context: RequestContext = Depends(request_context)) -> UsageSummary:
+    return usage_summary(context)
+
+
 @app.post("/api/analyze", response_model=AnalysisResponse, dependencies=[Depends(require_api_key)])
 def analyze_email(
     payload: EmailInput,
     context: RequestContext = Depends(request_context),
 ) -> AnalysisResponse:
+    if not can_create_scan(context):
+        raise HTTPException(status_code=402, detail="Monthly scan limit reached for this workspace.")
     saved_settings = get_org_settings(context)
     trusted_domains = payload.trusted_domains or saved_settings.trusted_domains
     trusted_senders = payload.trusted_senders or saved_settings.trusted_senders
@@ -166,6 +213,8 @@ async def analyze_eml(
     sender_override: str = Form(default=""),
     context: RequestContext = Depends(request_context),
 ) -> AnalysisResponse:
+    if not can_create_scan(context):
+        raise HTTPException(status_code=402, detail="Monthly scan limit reached for this workspace.")
     if not file.filename or not file.filename.lower().endswith(".eml"):
         raise HTTPException(status_code=415, detail="Only .eml files are accepted.")
     content = await file.read(settings.max_email_bytes + 1)
@@ -223,6 +272,54 @@ def scan_history(
 )
 def metrics(context: RequestContext = Depends(request_context)) -> DashboardMetrics:
     return dashboard_metrics(context)
+
+
+@app.get(
+    "/api/audit/events",
+    response_model=list[AuditEvent],
+    dependencies=[Depends(require_api_key)],
+)
+def audit_events(
+    limit: int = Query(default=50, ge=1, le=200),
+    context: RequestContext = Depends(request_context),
+) -> list[AuditEvent]:
+    return list_audit_events(context, limit)
+
+
+@app.get(
+    "/api/compliance/export",
+    response_model=ComplianceExport,
+    dependencies=[Depends(require_api_key)],
+)
+def export_compliance_data(context: RequestContext = Depends(request_context)) -> ComplianceExport:
+    return compliance_export(context)
+
+
+@app.delete(
+    "/api/compliance/data",
+    response_model=DataDeletionResponse,
+    dependencies=[Depends(require_api_key)],
+)
+def delete_compliance_data(
+    payload: DataDeletionRequest,
+    context: RequestContext = Depends(request_context),
+) -> DataDeletionResponse:
+    if payload.confirm_org_id != context.org_id:
+        raise HTTPException(status_code=400, detail="Confirmation org ID does not match this workspace.")
+    return delete_org_data(
+        context,
+        include_feedback=payload.include_feedback,
+        include_audit_logs=payload.include_audit_logs,
+    )
+
+
+@app.get(
+    "/api/security/posture",
+    response_model=SecurityPosture,
+    dependencies=[Depends(require_api_key)],
+)
+def posture(context: RequestContext = Depends(request_context)) -> SecurityPosture:
+    return security_posture(context)
 
 
 @app.post(

@@ -11,6 +11,11 @@ security controls.
 - Workspace settings API for trusted domains, known senders, sensitivity, retention, and privacy mode.
 - Dashboard metrics API for scan counts, verdict distribution, feedback counts, attachment counts, and top risks.
 - Demo `/api/me` auth scaffold with role/permission shape for future auth provider integration.
+- Subscription and usage-metering endpoints for plan limits, monthly scan quota, billing status, and future Stripe
+  integration.
+- Audit log endpoint for scans, feedback, settings changes, subscription changes, and compliance actions.
+- Compliance export and tenant data deletion endpoints that operate on redacted scan metadata by default.
+- Security posture endpoint that summarizes active controls and production launch gaps for operators.
 - Threat-intelligence preview API that extracts domains and shows disabled provider scaffolding without external calls.
 - Scan history stores sender, subject, verdict, score, top reasons, source, attachment count, and body hash.
 - Full email bodies are not stored by default.
@@ -88,9 +93,11 @@ Practical low-cost deployment path:
 Add billing only after accounts, orgs, and usage tracking are stable:
 
 - Stripe checkout.
-- Plans: Free, Pro, Team.
+- Plans: Starter, Team, Business, Enterprise.
 - Usage meters: scans/month, mailbox integrations, users per organization.
 - Billing portal for cancellation and invoices.
+- Webhook handling for subscription status changes.
+- Grace period and soft-limit workflows before hard blocking security scans.
 
 ## Honest product limitations
 
