@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import sqlite3
 import tempfile
 from contextlib import contextmanager
@@ -27,7 +28,7 @@ def normalize_context(org_id: str = "", user_id: str = "") -> RequestContext:
 @contextmanager
 def _connect():
     path = Path(settings.database_path)
-    if str(path).replace("\\", "/").startswith("/tmp/"):
+    if os.name == "nt" and str(path).replace("\\", "/").startswith("/tmp/"):
         path = Path(tempfile.gettempdir()) / path.name
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(path)
