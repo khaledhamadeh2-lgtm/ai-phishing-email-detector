@@ -26,6 +26,16 @@ def test_normal_internal_message_is_not_high_risk() -> None:
     assert result.verdict != "Likely Phishing"
 
 
+def test_model_only_risk_is_capped_without_supporting_evidence() -> None:
+    result = analyze(
+        "Updates <news@example.org>",
+        "Weekly update",
+        "The attached project summary is available in the usual shared workspace.",
+    )
+    assert result.probability < result.suspicious_threshold
+    assert result.verdict == "Safe"
+
+
 def test_probability_is_bounded() -> None:
     result = analyze("x", "URGENT", "password " * 50)
     assert 1 <= result.probability <= 99
@@ -62,6 +72,20 @@ def test_trusted_domain_reduces_but_does_not_zero_risk() -> None:
     assert result.trust_signals
     assert result.probability > 1
     assert any(factor.id == "credentials" for factor in result.risk_factors)
+
+
+def test_request_context_can_tune_for_false_positive_review() -> None:
+    result = analyze(
+        "Vendor Billing <billing@trustedvendor.com>",
+        "Quarterly invoice available",
+        "Your normal invoice is available in the vendor portal.",
+        trusted_domains=("trustedvendor.com",),
+        sensitivity="precision",
+    )
+    assert result.sensitivity == "precision"
+    assert result.suspicious_threshold > 35
+    assert any(signal.title == "Trusted organization domain" for signal in result.trust_signals)
+    assert result.verdict == "Safe"
 
 
 def test_lookalike_domain_is_detected() -> None:

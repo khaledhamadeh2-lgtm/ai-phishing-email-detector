@@ -56,11 +56,15 @@ flowchart LR
   logistic regression. Character features make simple spelling substitutions and obfuscation harder to use as an
   evasion technique.
 - **Attachment triage:** `.eml` uploads are statically inspected for risky metadata and byte patterns such as
-  executable/script extensions, misleading double extensions, macro-enabled Office files, suspicious PDF features,
-  oversized files, and ZIP contents with strict limits. Files are never executed, rendered, or extracted to disk.
+  executable/script extensions, misleading double extensions, mismatched magic bytes, macro-enabled Office files,
+  risky RTF object markers, suspicious PDF actions/forms, HTML forms/scripts, encrypted or oversized archives, and
+  ZIP contents with strict limits. Files are never executed, rendered, or extracted to disk.
 - **Organization context:** optional trusted domains and known sender addresses reduce risk slightly, while lookalike
   domains raise risk. Trusted context never automatically marks an email safe; risky links, failed authentication,
   suspicious language, or attachments can still drive a warning.
+- **False-positive controls:** analysts can choose balanced, recall-focused, or precision-focused sensitivity.
+  Model-only risk without supporting rule or attachment evidence is capped below the suspicious threshold to reduce
+  noisy warnings on ordinary business email.
 - **Feedback loop:** users can label false positives, false negatives, and correct decisions by analysis ID. The
   feedback log intentionally avoids storing full email bodies so it can support future tuning with less privacy risk.
 - **Mailbox dashboard:** automatic scans write a redacted history containing sender, subject, verdict, score, top
@@ -103,7 +107,7 @@ Interactive OpenAPI documentation is available at [http://localhost:8000/docs](h
 ```bash
 curl -X POST http://localhost:8000/api/analyze \
   -H "Content-Type: application/json" \
-  -d '{"sender":"Maya <maya@example.org>","subject":"Notes","body":"See you Thursday."}'
+  -d '{"sender":"Maya <maya@example.org>","subject":"Notes","body":"See you Thursday.","trusted_domains":["example.org"],"sensitivity":"precision"}'
 ```
 
 `POST /api/analyze-eml` accepts multipart field `file`. Only `.eml` uploads are allowed; attachments are statically
@@ -117,6 +121,15 @@ also evaluates authentication results and sender/reply-to alignment.
 bodies.
 
 Set `PHISHGUARD_API_KEY` to require `X-API-Key` on analysis endpoints in non-browser deployments.
+
+Optional detection tuning:
+
+```bash
+PHISHGUARD_SUSPICIOUS_THRESHOLD=35
+PHISHGUARD_LIKELY_PHISHING_THRESHOLD=70
+PHISHGUARD_RATE_LIMIT_REQUESTS=120
+PHISHGUARD_RATE_LIMIT_WINDOW_SECONDS=60
+```
 
 Organization context can be configured through environment variables:
 
@@ -181,6 +194,7 @@ Copy `.env.example` to `.env` only when overriding defaults. Never commit real e
   uploaded to third-party scanners.
 - Feedback stores analysis IDs, labels, timestamps, and optional notes instead of full private email bodies.
 - Input is validated and size-limited; errors avoid echoing submitted email content into logs.
+- API endpoints include simple in-memory rate limiting to reduce accidental abuse in small deployments.
 - The demo has no database and retains no messages.
 - Production use should enable the optional API key and add TLS termination, rate limits, malware isolation, further
   redaction, and a documented retention policy.
@@ -188,7 +202,8 @@ Copy `.env.example` to `.env` only when overriding defaults. Never commit real e
 ## Tests and automation
 
 GitHub Actions runs Ruff, pytest with an 80% coverage floor, `pip-audit`, the TypeScript production build, and Docker
-Compose builds. Run the main checks locally:
+Compose builds. Security workflows also run CodeQL static analysis and pull-request dependency review for high-severity
+package changes. Run the main checks locally:
 
 ```bash
 cd backend && ruff check app tests ../ml && pytest --cov=app --cov-fail-under=80

@@ -35,10 +35,13 @@ PDF_DANGEROUS_TOKENS = (
     b"/Launch",
     b"/EmbeddedFile",
     b"/RichMedia",
+    b"/AcroForm",
+    b"/SubmitForm",
 )
 ZIP_MACRO_NAMES = ("vbaProject.bin",)
-ZIP_EXTERNAL_NAMES = ("externalLinks/", "oleObject", "embeddings/")
+ZIP_EXTERNAL_NAMES = ("externalLinks/", "oleObject", "embeddings/", "activeX/", "customUI/")
 URL_PATTERN = re.compile(rb"https?://", re.IGNORECASE)
+HTML_FORM_PATTERN = re.compile(rb"<\s*(form|input|script|iframe)\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -70,6 +73,8 @@ def _zip_reasons(content: bytes) -> list[str]:
                 return ["Archive contains an unusually large number of files."]
             for member in members:
                 normalized = member.filename.replace("\\", "/")
+                if member.flag_bits & 0x1:
+                    reasons.append("Archive contains encrypted/password-protected content.")
                 if member.file_size > MAX_ZIP_MEMBER_BYTES:
                     reasons.append("Archive contains a very large embedded file.")
                     break
@@ -84,6 +89,20 @@ def _zip_reasons(content: bytes) -> list[str]:
     return sorted(set(reasons))
 
 
+def _magic_type(content: bytes) -> str:
+    if content.startswith(b"MZ"):
+        return "windows-executable"
+    if content.startswith(b"%PDF"):
+        return "pdf"
+    if content.startswith(b"PK\x03\x04"):
+        return "zip-or-office"
+    if content.startswith((b"{\\rtf", b"{\\rt")):
+        return "rtf"
+    if content.lstrip()[:20].lower().startswith((b"<!doctype html", b"<html", b"<script")):
+        return "html"
+    return ""
+
+
 def analyze_attachment(filename: str, content_type: str, content: bytes, max_bytes: int) -> AttachmentRisk:
     """Static, no-execution attachment triage.
 
@@ -93,11 +112,12 @@ def analyze_attachment(filename: str, content_type: str, content: bytes, max_byt
     safe_name = PurePath(filename or "attachment").name[:180]
     truncated = content[:max_bytes]
     size = len(content)
-    digest = hashlib.sha256(truncated).hexdigest()
+    digest = hashlib.sha256(content).hexdigest()
     reasons: list[str] = []
     score = 0
     ext = _extension(safe_name)
     lower_type = (content_type or "application/octet-stream").lower()
+    magic_type = _magic_type(truncated)
 
     if size > max_bytes:
         reasons.append("Attachment was too large and was only partially inspected.")
@@ -114,10 +134,20 @@ def analyze_attachment(filename: str, content_type: str, content: bytes, max_byt
     if _looks_like_double_extension(safe_name):
         reasons.append("Filename uses a misleading double extension.")
         score += 26
-    if truncated.startswith(b"MZ"):
+    if magic_type == "windows-executable":
         reasons.append("File bytes look like a Windows executable.")
         score += 45
-    if truncated.startswith(b"%PDF"):
+    if magic_type == "windows-executable" and ext not in EXECUTABLE_EXTENSIONS:
+        reasons.append("File content does not match its harmless-looking extension.")
+        score += 28
+    if magic_type == "pdf" and ext not in {".pdf", ""}:
+        reasons.append("PDF content is disguised with a different file extension.")
+        score += 18
+    if magic_type == "html" or ext in {".html", ".htm", ".svg"}:
+        if HTML_FORM_PATTERN.search(truncated):
+            reasons.append("HTML-style attachment contains form, script, or iframe markup.")
+            score += 28
+    if magic_type == "pdf":
         found = [
             token.decode("ascii", errors="ignore").lstrip("/")
             for token in PDF_DANGEROUS_TOKENS
@@ -129,10 +159,20 @@ def analyze_attachment(filename: str, content_type: str, content: bytes, max_byt
         if len(URL_PATTERN.findall(truncated)) >= 5:
             reasons.append("PDF contains many embedded links.")
             score += 12
-    if "zip" in lower_type or truncated.startswith(b"PK\x03\x04"):
+    if "zip" in lower_type or magic_type == "zip-or-office":
         zip_reasons = _zip_reasons(truncated)
         reasons.extend(zip_reasons)
-        score += min(45, 16 * len(zip_reasons))
+        for reason in zip_reasons:
+            if "macro" in reason.lower():
+                score += 34
+            elif "encrypted" in reason.lower() or "executable" in reason.lower():
+                score += 28
+            else:
+                score += 16
+        score = min(score, 60)
+    if magic_type == "rtf" and re.search(rb"\\obj(?:data|autlink|update)|\\field", truncated, re.IGNORECASE):
+        reasons.append("RTF attachment contains embedded object or field markers.")
+        score += 30
     if lower_type.startswith("image/"):
         reasons.append("Image content is not executed; QR/OCR analysis is a future enhancement.")
 

@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     mailbox_state_path: str = "/tmp/phishguard-mailbox-state.json"
     mailbox_alert_path: str = "/tmp/phishguard-alerts.jsonl"
     mailbox_history_path: str = "/tmp/phishguard-mailbox-history.jsonl"
+    suspicious_threshold: float = Field(default=35.0, ge=1.0, le=99.0)
+    likely_phishing_threshold: float = Field(default=70.0, ge=1.0, le=99.0)
+    rate_limit_requests: int = Field(default=120, ge=10, le=10_000)
+    rate_limit_window_seconds: int = Field(default=60, ge=10, le=3_600)
     trusted_domains: str = ""
     trusted_senders: str = ""
     protected_brands: str = "microsoft,google,apple,paypal,amazon,netflix,docusign,dropbox"

@@ -2,7 +2,8 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from app.main import app
+from app.config import settings
+from app.main import _RATE_LIMIT_BUCKETS, app
 
 client = TestClient(app)
 
@@ -16,6 +17,24 @@ def test_health() -> None:
 def test_analyze_validation() -> None:
     response = client.post("/api/analyze", json={"body": ""})
     assert response.status_code == 422
+
+
+def test_analyze_accepts_per_request_tuning_context() -> None:
+    response = client.post(
+        "/api/analyze",
+        json={
+            "sender": "Maya <maya@example.org>",
+            "subject": "Normal update",
+            "body": "The project notes are ready in the usual workspace.",
+            "trusted_domains": ["example.org"],
+            "sensitivity": "precision",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["sensitivity"] == "precision"
+    assert data["suspicious_threshold"] > 35
+    assert data["trust_signals"]
 
 
 def test_eml_upload() -> None:
@@ -49,6 +68,21 @@ def test_security_headers() -> None:
     response = client.get("/api/health")
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["x-frame-options"] == "DENY"
+
+
+def test_api_rate_limit_returns_clean_error() -> None:
+    _RATE_LIMIT_BUCKETS.clear()
+    with (
+        patch.object(settings, "rate_limit_requests", 1),
+        patch.object(settings, "rate_limit_window_seconds", 60),
+    ):
+        first = client.post("/api/analyze", json={"body": "hello"})
+        second = client.post("/api/analyze", json={"body": "hello again"})
+
+    _RATE_LIMIT_BUCKETS.clear()
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert second.json()["detail"] == "Too many requests. Please wait and retry."
 
 
 def test_feedback_records_without_email_body(tmp_path) -> None:

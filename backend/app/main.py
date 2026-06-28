@@ -1,12 +1,15 @@
 import json
 import logging
 import secrets
+import time
+from collections import defaultdict, deque
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import settings
@@ -17,6 +20,7 @@ from .schemas import AnalysisResponse, EmailInput, FeedbackInput, MailboxHistory
 
 logging.basicConfig(level=settings.log_level)
 logger = logging.getLogger(__name__)
+_RATE_LIMIT_BUCKETS: dict[str, deque[float]] = defaultdict(deque)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -27,6 +31,27 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Content-Security-Policy"] = "frame-ancestors 'none'; base-uri 'none'"
         return response
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path.startswith("/api/") and request.url.path != "/api/health":
+            forwarded_for = request.headers.get("x-forwarded-for", "")
+            client = forwarded_for.split(",", 1)[0].strip() if forwarded_for else ""
+            client = client or (request.client.host if request.client else "unknown")
+            now = time.monotonic()
+            bucket = _RATE_LIMIT_BUCKETS[client]
+            window_start = now - settings.rate_limit_window_seconds
+            while bucket and bucket[0] < window_start:
+                bucket.popleft()
+            if len(bucket) >= settings.rate_limit_requests:
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "Too many requests. Please wait and retry."},
+                    headers={"Retry-After": str(settings.rate_limit_window_seconds)},
+                )
+            bucket.append(now)
+        return await call_next(request)
 
 
 def require_api_key(x_api_key: str = Header(default="")) -> None:
@@ -41,6 +66,7 @@ app = FastAPI(
 )
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.hosts)
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.origins,
@@ -57,7 +83,15 @@ def health() -> dict[str, str]:
 
 @app.post("/api/analyze", response_model=AnalysisResponse, dependencies=[Depends(require_api_key)])
 def analyze_email(payload: EmailInput) -> AnalysisResponse:
-    return analyze(payload.sender, payload.subject, payload.body, payload.headers)
+    return analyze(
+        payload.sender,
+        payload.subject,
+        payload.body,
+        payload.headers,
+        trusted_domains=tuple(payload.trusted_domains),
+        trusted_senders=tuple(payload.trusted_senders),
+        sensitivity=payload.sensitivity,
+    )
 
 
 @app.post("/api/analyze-eml", response_model=AnalysisResponse, dependencies=[Depends(require_api_key)])

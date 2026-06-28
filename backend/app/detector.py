@@ -32,11 +32,16 @@ def analyze(
     body: str,
     headers: dict[str, str] | None = None,
     attachments: tuple[AttachmentRisk, ...] = (),
+    trusted_domains: tuple[str, ...] = (),
+    trusted_senders: tuple[str, ...] = (),
+    sensitivity: str = "balanced",
 ) -> AnalysisResponse:
     findings = evaluate(sender, subject, body, headers)
     rule_score = min(100.0, float(sum(f.weight for f in findings)))
     attachment_score = min(60.0, float(sum(item.score for item in attachments)))
-    trust_signals = evaluate_trust(sender, settings.trusted_domain_list, settings.trusted_sender_list)
+    context_domains = sorted(set(settings.trusted_domain_list + [d.lower() for d in trusted_domains]))
+    context_senders = sorted(set(settings.trusted_sender_list + [s.lower() for s in trusted_senders]))
+    trust_signals = evaluate_trust(sender, context_domains, context_senders)
     trust_adjustment = max(-24.0, float(sum(signal.adjustment for signal in trust_signals)))
     model = load_model()
     model_score = 50.0
@@ -50,8 +55,26 @@ def analyze(
         blended_score = max(blended_score, 70 + min(15, (rule_score - 70) * 0.35))
     if attachment_score >= 40:
         blended_score = max(blended_score, 62 + min(18, (attachment_score - 40) * 0.4))
+    if rule_score == 0 and attachment_score < 18 and model_score < 85:
+        blended_score = min(blended_score, 34.0)
+
     probability = round(min(99.0, max(1.0, blended_score)), 1)
-    verdict = "Likely Phishing" if probability >= 70 else "Suspicious" if probability >= 35 else "Safe"
+    sensitivity = sensitivity if sensitivity in {"balanced", "recall", "precision"} else "balanced"
+    suspicious_threshold = settings.suspicious_threshold
+    likely_threshold = settings.likely_phishing_threshold
+    if sensitivity == "recall":
+        suspicious_threshold = max(20.0, suspicious_threshold - 10)
+        likely_threshold = max(55.0, likely_threshold - 8)
+    elif sensitivity == "precision":
+        suspicious_threshold = min(55.0, suspicious_threshold + 10)
+        likely_threshold = min(88.0, likely_threshold + 8)
+    verdict = (
+        "Likely Phishing"
+        if probability >= likely_threshold
+        else "Suspicious"
+        if probability >= suspicious_threshold
+        else "Safe"
+    )
     recommendations = (
         [
             "Do not click links, open attachments, reply, or provide credentials.",
@@ -96,4 +119,7 @@ def analyze(
         recommendations=recommendations,
         model_version=MODEL_VERSION,
         analyzed_headers=bool(headers),
+        sensitivity=sensitivity,
+        suspicious_threshold=round(suspicious_threshold, 1),
+        likely_phishing_threshold=round(likely_threshold, 1),
     )

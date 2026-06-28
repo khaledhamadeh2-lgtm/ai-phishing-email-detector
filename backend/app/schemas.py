@@ -6,6 +6,9 @@ class EmailInput(BaseModel):
     subject: str = Field(default="", max_length=1_000)
     body: str = Field(min_length=1, max_length=250_000)
     headers: dict[str, str] = Field(default_factory=dict)
+    trusted_domains: list[str] = Field(default_factory=list, max_length=50)
+    trusted_senders: list[str] = Field(default_factory=list, max_length=100)
+    sensitivity: str = Field(default="balanced", pattern="^(balanced|recall|precision)$")
 
 
 class RiskFactor(BaseModel):
@@ -70,3 +73,6 @@ class AnalysisResponse(BaseModel):
     recommendations: list[str]
     model_version: str
     analyzed_headers: bool
+    sensitivity: str
+    suspicious_threshold: float
+    likely_phishing_threshold: float

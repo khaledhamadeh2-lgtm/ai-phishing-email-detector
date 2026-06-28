@@ -16,12 +16,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import FeatureUnion, Pipeline
 
 
-def _classification_metrics(
-    y_true: list[int], probabilities, threshold: float
-) -> dict[str, object]:
-    predictions = [
-        1 if probability >= threshold else 0 for probability in probabilities
-    ]
+def _classification_metrics(y_true: list[int], probabilities, threshold: float) -> dict[str, object]:
+    predictions = [1 if probability >= threshold else 0 for probability in probabilities]
     precision, recall, f1, _ = precision_recall_fscore_support(
         y_true, predictions, average="binary", zero_division=0
     )
@@ -41,12 +37,8 @@ def _classification_metrics(
     }
 
 
-def _recall_focused_threshold(
-    y_true: list[int], probabilities, minimum_precision: float
-) -> float:
-    precision_values, recall_values, thresholds = precision_recall_curve(
-        y_true, probabilities
-    )
+def _recall_focused_threshold(y_true: list[int], probabilities, minimum_precision: float) -> float:
+    precision_values, recall_values, thresholds = precision_recall_curve(y_true, probabilities)
     candidates: list[tuple[float, float, float]] = []
     for precision, recall, threshold in zip(
         precision_values[:-1], recall_values[:-1], thresholds, strict=False
@@ -73,11 +65,7 @@ def train(
     csv.field_size_limit(2_147_483_647)
     with dataset.open(encoding="utf-8", newline="") as handle:
         rows = list(csv.DictReader(handle))
-    unique = {
-        row["text"]: int(row["label"])
-        for row in rows
-        if row.get("text") and row.get("label")
-    }
+    unique = {row["text"]: int(row["label"]) for row in rows if row.get("text") and row.get("label")}
     texts = list(unique)
     labels = [unique[text] for text in texts]
     x_train, x_test, y_train, y_test = train_test_split(
@@ -126,12 +114,8 @@ def train(
     pipeline.fit(x_train, y_train)
     probabilities = pipeline.predict_proba(x_test)[:, 1]
     default_metrics = _classification_metrics(y_test, probabilities, threshold=0.5)
-    recall_threshold = _recall_focused_threshold(
-        y_test, probabilities, minimum_precision
-    )
-    recall_metrics = _classification_metrics(
-        y_test, probabilities, threshold=recall_threshold
-    )
+    recall_threshold = _recall_focused_threshold(y_test, probabilities, minimum_precision)
+    recall_metrics = _classification_metrics(y_test, probabilities, threshold=recall_threshold)
     train_distribution = Counter(y_train)
     test_distribution = Counter(y_test)
     metrics = {
@@ -158,9 +142,18 @@ def train(
             "No raw dataset rows are committed to the repository.",
         ],
         "limitations": [
-            "The public corpus contains historical emails and appears to include spam/social-engineering, not only modern credential phishing.",
-            "The split is stratified but not campaign-grouped because the normalized public CSV does not provide campaign IDs.",
-            "Metrics are an offline benchmark and do not guarantee production performance on a specific mailbox.",
+            (
+                "The public corpus contains historical emails and appears to include "
+                "spam/social-engineering, not only modern credential phishing."
+            ),
+            (
+                "The split is stratified but not campaign-grouped because the normalized "
+                "public CSV does not provide campaign IDs."
+            ),
+            (
+                "Metrics are an offline benchmark and do not guarantee production "
+                "performance on a specific mailbox."
+            ),
         ],
     }
     model_output.parent.mkdir(parents=True, exist_ok=True)
@@ -176,6 +169,36 @@ def _evaluation_markdown(metrics: dict[str, object]) -> str:
     source = metrics["source"]
     default_metrics = metrics["default_threshold"]
     recall_metrics = metrics["recall_focused_threshold"]
+    default_confusion = default_metrics["confusion_matrix"]
+    recall_confusion = recall_metrics["confusion_matrix"]
+    default_row = " | ".join(
+        [
+            "Default",
+            str(default_metrics["threshold"]),
+            str(default_metrics["precision"]),
+            str(default_metrics["recall"]),
+            str(default_metrics["f1"]),
+            str(default_metrics["false_positive_rate"]),
+            str(default_confusion["tn"]),
+            str(default_confusion["fp"]),
+            str(default_confusion["fn"]),
+            str(default_confusion["tp"]),
+        ]
+    )
+    recall_row = " | ".join(
+        [
+            "Recall-focused",
+            str(recall_metrics["threshold"]),
+            str(recall_metrics["precision"]),
+            str(recall_metrics["recall"]),
+            str(recall_metrics["f1"]),
+            str(recall_metrics["false_positive_rate"]),
+            str(recall_confusion["tn"]),
+            str(recall_confusion["fp"]),
+            str(recall_confusion["fn"]),
+            str(recall_confusion["tp"]),
+        ]
+    )
     return f"""# Model evaluation report
 
 ## Dataset
@@ -193,8 +216,8 @@ deduplicated before splitting to reduce exact-message leakage.
 
 | Evaluation mode | Threshold | Precision | Recall | F1 | False-positive rate | TN | FP | FN | TP |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Default | {default_metrics["threshold"]} | {default_metrics["precision"]} | {default_metrics["recall"]} | {default_metrics["f1"]} | {default_metrics["false_positive_rate"]} | {default_metrics["confusion_matrix"]["tn"]} | {default_metrics["confusion_matrix"]["fp"]} | {default_metrics["confusion_matrix"]["fn"]} | {default_metrics["confusion_matrix"]["tp"]} |
-| Recall-focused | {recall_metrics["threshold"]} | {recall_metrics["precision"]} | {recall_metrics["recall"]} | {recall_metrics["f1"]} | {recall_metrics["false_positive_rate"]} | {recall_metrics["confusion_matrix"]["tn"]} | {recall_metrics["confusion_matrix"]["fp"]} | {recall_metrics["confusion_matrix"]["fn"]} | {recall_metrics["confusion_matrix"]["tp"]} |
+| {default_row} |
+| {recall_row} |
 
 ## Leakage controls
 
@@ -209,15 +232,9 @@ deduplicated before splitting to reduce exact-message leakage.
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=Path, default=Path("ml/sample_data.csv"))
-    parser.add_argument(
-        "--model-output", type=Path, default=Path("backend/models/phishguard-v3.joblib")
-    )
-    parser.add_argument(
-        "--metrics-output", type=Path, default=Path("docs/model-metrics.json")
-    )
-    parser.add_argument(
-        "--evaluation-output", type=Path, default=Path("docs/model-evaluation.md")
-    )
+    parser.add_argument("--model-output", type=Path, default=Path("backend/models/phishguard-v3.joblib"))
+    parser.add_argument("--metrics-output", type=Path, default=Path("docs/model-metrics.json"))
+    parser.add_argument("--evaluation-output", type=Path, default=Path("docs/model-evaluation.md"))
     parser.add_argument("--source-name", default="Synthetic smoke-test sample")
     parser.add_argument("--source-url", default="local:ml/sample_data.csv")
     parser.add_argument("--source-license", default="project-local synthetic examples")

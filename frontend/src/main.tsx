@@ -24,6 +24,9 @@ type Result = {
   attachments: AttachmentFinding[];
   recommendations: string[];
   model_version: string;
+  sensitivity: string;
+  suspicious_threshold: number;
+  likely_phishing_threshold: number;
 };
 type MailboxRecord = {
   uid: string;
@@ -51,12 +54,23 @@ const samples = {
   },
 };
 
+const defaultTuning = {
+  trustedDomains: "example.org, trustedvendor.com",
+  trustedSenders: "",
+  sensitivity: "balanced",
+};
+
 function riskClass(probability: number) {
   return probability >= 70 ? "danger" : probability >= 35 ? "warning" : "safe";
 }
 
+function splitList(value: string) {
+  return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
 function App() {
   const [email, setEmail] = useState(samples.suspicious);
+  const [tuning, setTuning] = useState(defaultTuning);
   const [result, setResult] = useState<Result | null>(null);
   const [history, setHistory] = useState<MailboxRecord[]>([]);
   const [loading, setLoading] = useState(false);
@@ -89,7 +103,12 @@ function App() {
       const response = await fetch(`${api}/api/analyze`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(email),
+        body: JSON.stringify({
+          ...email,
+          trusted_domains: splitList(tuning.trustedDomains),
+          trusted_senders: splitList(tuning.trustedSenders),
+          sensitivity: tuning.sensitivity,
+        }),
       });
       if (!response.ok) throw new Error("The analysis service could not process this message.");
       setResult(await response.json());
@@ -109,7 +128,7 @@ function App() {
     form.append("file", file);
     try {
       const response = await fetch(`${api}/api/analyze-eml`, { method: "POST", body: form });
-      if (!response.ok) throw new Error("Only readable, plain-text .eml files under the size limit are supported.");
+      if (!response.ok) throw new Error("Only readable .eml files under the size limit are supported.");
       setResult(await response.json());
       await loadHistory();
     } catch (caught) {
@@ -165,18 +184,33 @@ function App() {
           <label>Message<textarea rows={10} required value={email.body} onChange={(e) => setEmail({...email, body: e.target.value})} /></label>
           <div className="actions">
             <label className="upload">Upload .eml<input type="file" accept=".eml,message/rfc822" onChange={(e) => upload(e.target.files?.[0])} /></label>
-            <button className="analyze" disabled={loading}>{loading ? "Analyzing..." : "Analyze message ->"}</button>
+            <button className="analyze" disabled={loading}>{loading ? "Analyzing..." : "Analyze message →"}</button>
           </div>
           {error && <p role="alert" className="error">{error}</p>}
         </form>
+
+        <section className="panel tuning">
+          <div className="panel-title">
+            <div><small>02 / TUNING</small><h2>False-positive controls</h2></div>
+          </div>
+          <p className="quiet">Trusted context lowers risk carefully; it never automatically declares an email safe.</p>
+          <label>Trusted domains<input value={tuning.trustedDomains} onChange={(e) => setTuning({...tuning, trustedDomains: e.target.value})} /></label>
+          <label>Known senders<input placeholder="maya@example.org, billing@vendor.com" value={tuning.trustedSenders} onChange={(e) => setTuning({...tuning, trustedSenders: e.target.value})} /></label>
+          <label>Sensitivity<select value={tuning.sensitivity} onChange={(e) => setTuning({...tuning, sensitivity: e.target.value})}>
+            <option value="balanced">Balanced</option>
+            <option value="recall">Catch more phishing</option>
+            <option value="precision">Reduce false positives</option>
+          </select></label>
+        </section>
 
         <aside className={`panel report ${tone}`} aria-live="polite">
           {!result ? (
             <div className="empty"><div className="radar"><span /></div><h2>Awaiting signal</h2><p>Submit a message to map its risk indicators and receive an explainable verdict.</p></div>
           ) : (
             <>
-              <div className="panel-title"><div><small>02 / ASSESSMENT</small><h2>Threat report</h2></div><b className="verdict">{result.verdict}</b></div>
-              <div className="score"><div><strong>{result.probability.toFixed(0)}</strong><span>%</span></div><p>Phishing probability<small>ML {result.model_score}% · Rules {result.rule_score}%</small></p></div>
+              <div className="panel-title"><div><small>03 / ASSESSMENT</small><h2>Threat report</h2></div><b className="verdict">{result.verdict}</b></div>
+              <div className="score"><div><strong>{result.probability.toFixed(0)}</strong><span>%</span></div><p>Phishing probability<small>ML {result.model_score}% · Rules {result.rule_score}% · {result.sensitivity}</small></p></div>
+              <div className="thresholds"><span>Suspicious ≥ {result.suspicious_threshold}%</span><span>Likely phishing ≥ {result.likely_phishing_threshold}%</span></div>
               <div className="meter"><span style={{width: `${result.probability}%`}} /></div>
               {!!result.trust_signals.length && <><h3>Organization context <span>{result.trust_signals.length}</span></h3><div className="findings trust-list">{result.trust_signals.map((signal) => <article key={signal.title}><i className="trust">✓</i><div><b>{signal.title}</b><p>{signal.detail}</p></div><span>{signal.adjustment}</span></article>)}</div></>}
               <h3>Detected signals <span>{result.risk_factors.length}</span></h3>
@@ -200,7 +234,7 @@ function App() {
 
       <section className="history-section panel">
         <div className="panel-title">
-          <div><small>03 / MAILBOX MONITOR</small><h2>Recent scanned emails</h2></div>
+          <div><small>04 / MAILBOX MONITOR</small><h2>Recent scanned emails</h2></div>
           <button className="ghost" type="button" onClick={loadHistory}>{historyLoading ? "Refreshing..." : "Refresh"}</button>
         </div>
         <p className="privacy-note">Stores sender, subject, score, verdict, reasons, attachment count, and hashes only — never full email bodies.</p>
