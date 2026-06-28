@@ -28,10 +28,11 @@ type Result = {
   suspicious_threshold: number;
   likely_phishing_threshold: number;
 };
-type MailboxRecord = {
-  uid: string;
-  fingerprint: string;
+type ScanRecord = {
   analysis_id: string;
+  org_id: string;
+  user_id: string;
+  source: string;
   scanned_at: string;
   sender: string;
   subject: string;
@@ -39,6 +40,7 @@ type MailboxRecord = {
   verdict: string;
   risk_factors: string[];
   attachment_count: number;
+  body_sha256: string;
 };
 
 const samples = {
@@ -71,8 +73,9 @@ function splitList(value: string) {
 function App() {
   const [email, setEmail] = useState(samples.suspicious);
   const [tuning, setTuning] = useState(defaultTuning);
+  const [workspace, setWorkspace] = useState({ orgId: "demo-org", userId: "analyst-demo" });
   const [result, setResult] = useState<Result | null>(null);
-  const [history, setHistory] = useState<MailboxRecord[]>([]);
+  const [history, setHistory] = useState<ScanRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState("");
@@ -80,10 +83,14 @@ function App() {
   const api = import.meta.env.VITE_API_URL || "http://localhost:8000";
   const tone = useMemo(() => (result ? riskClass(result.probability) : "neutral"), [result]);
 
+  function tenantHeaders() {
+    return { "X-Org-ID": workspace.orgId, "X-User-ID": workspace.userId };
+  }
+
   async function loadHistory() {
     setHistoryLoading(true);
     try {
-      const response = await fetch(`${api}/api/mailbox/history?limit=8`);
+      const response = await fetch(`${api}/api/scans/history?limit=8`, { headers: tenantHeaders() });
       if (response.ok) setHistory(await response.json());
     } finally {
       setHistoryLoading(false);
@@ -92,7 +99,7 @@ function App() {
 
   useEffect(() => {
     void loadHistory();
-  }, []);
+  }, [workspace.orgId]);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -102,7 +109,7 @@ function App() {
     try {
       const response = await fetch(`${api}/api/analyze`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...tenantHeaders() },
         body: JSON.stringify({
           ...email,
           trusted_domains: splitList(tuning.trustedDomains),
@@ -112,6 +119,7 @@ function App() {
       });
       if (!response.ok) throw new Error("The analysis service could not process this message.");
       setResult(await response.json());
+      await loadHistory();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Analysis failed.");
     } finally {
@@ -127,7 +135,11 @@ function App() {
     const form = new FormData();
     form.append("file", file);
     try {
-      const response = await fetch(`${api}/api/analyze-eml`, { method: "POST", body: form });
+      const response = await fetch(`${api}/api/analyze-eml`, {
+        method: "POST",
+        headers: tenantHeaders(),
+        body: form,
+      });
       if (!response.ok) throw new Error("Only readable .eml files under the size limit are supported.");
       setResult(await response.json());
       await loadHistory();
@@ -147,7 +159,7 @@ function App() {
     try {
       const response = await fetch(`${api}/api/feedback`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...tenantHeaders() },
         body: JSON.stringify({ analysis_id: analysisId, label, note: "" }),
       });
       if (!response.ok) throw new Error("Feedback could not be saved.");
@@ -161,13 +173,13 @@ function App() {
     <main>
       <header>
         <div className="brand"><span className="shield">P</span> PHISHGUARD <b>AI</b></div>
-        <span className="status"><i /> Analysis engine ready</span>
+        <span className="status"><i /> SaaS foundation ready</span>
       </header>
 
       <section className="hero">
         <p className="eyebrow">Explainable threat intelligence</p>
         <h1>Know before you <span>click.</span></h1>
-        <p>Hybrid machine learning, mailbox monitoring, and security heuristics expose the signals hiding inside suspicious emails.</p>
+        <p>Hybrid machine learning, tenant-aware scan history, mailbox monitoring, and security heuristics for suspicious email triage.</p>
       </section>
 
       <section className="workspace">
@@ -191,9 +203,11 @@ function App() {
 
         <section className="panel tuning">
           <div className="panel-title">
-            <div><small>02 / TUNING</small><h2>False-positive controls</h2></div>
+            <div><small>02 / WORKSPACE</small><h2>Org settings</h2></div>
           </div>
-          <p className="quiet">Trusted context lowers risk carefully; it never automatically declares an email safe.</p>
+          <p className="quiet">Demo tenant headers simulate real accounts now; these map cleanly to proper login later.</p>
+          <label>Organization ID<input value={workspace.orgId} onChange={(e) => setWorkspace({...workspace, orgId: e.target.value})} /></label>
+          <label>User ID<input value={workspace.userId} onChange={(e) => setWorkspace({...workspace, userId: e.target.value})} /></label>
           <label>Trusted domains<input value={tuning.trustedDomains} onChange={(e) => setTuning({...tuning, trustedDomains: e.target.value})} /></label>
           <label>Known senders<input placeholder="maya@example.org, billing@vendor.com" value={tuning.trustedSenders} onChange={(e) => setTuning({...tuning, trustedSenders: e.target.value})} /></label>
           <label>Sensitivity<select value={tuning.sensitivity} onChange={(e) => setTuning({...tuning, sensitivity: e.target.value})}>
@@ -234,28 +248,28 @@ function App() {
 
       <section className="history-section panel">
         <div className="panel-title">
-          <div><small>04 / MAILBOX MONITOR</small><h2>Recent scanned emails</h2></div>
+          <div><small>04 / SAAS HISTORY</small><h2>Recent scans for {workspace.orgId || "demo-org"}</h2></div>
           <button className="ghost" type="button" onClick={loadHistory}>{historyLoading ? "Refreshing..." : "Refresh"}</button>
         </div>
-        <p className="privacy-note">Stores sender, subject, score, verdict, reasons, attachment count, and hashes only — never full email bodies.</p>
+        <p className="privacy-note">Stores sender, subject, score, verdict, reasons, source, attachment count, and body hash only — never full email bodies by default.</p>
         <div className="history-grid">
           {history.length ? history.map((item) => (
-            <article className={`history-card ${riskClass(item.probability)}`} key={`${item.uid}-${item.fingerprint}`}>
+            <article className={`history-card ${riskClass(item.probability)}`} key={`${item.analysis_id}-${item.scanned_at}`}>
               <div className="history-top"><b>{item.verdict}</b><span>{item.probability.toFixed(0)}%</span></div>
               <h3>{item.subject || "(No subject)"}</h3>
               <p>{item.sender}</p>
-              <small>{new Date(item.scanned_at).toLocaleString()} · Attachments: {item.attachment_count}</small>
+              <small>{new Date(item.scanned_at).toLocaleString()} · {item.source} · Attachments: {item.attachment_count}</small>
               <div className="reason-chips">{item.risk_factors.length ? item.risk_factors.map((reason) => <em key={reason}>{reason}</em>) : <em>No strong rule signals</em>}</div>
               <div className="mini-feedback">
                 <button type="button" onClick={() => sendFeedback("false_positive", item.analysis_id)}>False positive</button>
                 <button type="button" onClick={() => sendFeedback("phishing", item.analysis_id)}>Correct phish</button>
               </div>
             </article>
-          )) : <p className="quiet">No mailbox history yet. Run the read-only mailbox scanner to populate this dashboard.</p>}
+          )) : <p className="quiet">No persisted scan history yet. Analyze a message to populate this tenant dashboard.</p>}
         </div>
       </section>
 
-      <footer>This advisory tool statically inspects attachment metadata and risky file patterns, but never executes attachments or opens links.</footer>
+      <footer>This advisory tool stores redacted scan metadata by default, and never executes attachments or opens links.</footer>
     </main>
   );
 }

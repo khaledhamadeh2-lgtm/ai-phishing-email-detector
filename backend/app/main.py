@@ -16,7 +16,15 @@ from .config import settings
 from .detector import analyze
 from .mailbox import read_mailbox_history
 from .parser import parse_eml
-from .schemas import AnalysisResponse, EmailInput, FeedbackInput, MailboxHistoryRecord
+from .schemas import AnalysisResponse, EmailInput, FeedbackInput, MailboxHistoryRecord, ScanHistoryRecord
+from .storage import (
+    RequestContext,
+    init_storage,
+    list_scan_history,
+    normalize_context,
+    record_feedback,
+    record_scan,
+)
 
 logging.basicConfig(level=settings.log_level)
 logger = logging.getLogger(__name__)
@@ -59,6 +67,13 @@ def require_api_key(x_api_key: str = Header(default="")) -> None:
         raise HTTPException(status_code=401, detail="A valid API key is required.")
 
 
+def request_context(
+    x_org_id: str = Header(default="demo-org"),
+    x_user_id: str = Header(default="anonymous"),
+) -> RequestContext:
+    return normalize_context(x_org_id, x_user_id)
+
+
 app = FastAPI(
     title=settings.app_name,
     description="Explainable hybrid phishing-email risk analysis. Submitted content is processed in memory.",
@@ -72,8 +87,13 @@ app.add_middleware(
     allow_origins=settings.origins,
     allow_credentials=False,
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "X-API-Key"],
+    allow_headers=["Content-Type", "X-API-Key", "X-Org-ID", "X-User-ID"],
 )
+
+
+@app.on_event("startup")
+def startup() -> None:
+    init_storage()
 
 
 @app.get("/api/health")
@@ -82,8 +102,11 @@ def health() -> dict[str, str]:
 
 
 @app.post("/api/analyze", response_model=AnalysisResponse, dependencies=[Depends(require_api_key)])
-def analyze_email(payload: EmailInput) -> AnalysisResponse:
-    return analyze(
+def analyze_email(
+    payload: EmailInput,
+    context: RequestContext = Depends(request_context),
+) -> AnalysisResponse:
+    result = analyze(
         payload.sender,
         payload.subject,
         payload.body,
@@ -92,12 +115,15 @@ def analyze_email(payload: EmailInput) -> AnalysisResponse:
         trusted_senders=tuple(payload.trusted_senders),
         sensitivity=payload.sensitivity,
     )
+    record_scan(context, "pasted", payload.sender, payload.subject, payload.body, result)
+    return result
 
 
 @app.post("/api/analyze-eml", response_model=AnalysisResponse, dependencies=[Depends(require_api_key)])
 async def analyze_eml(
     file: UploadFile = File(...),
     sender_override: str = Form(default=""),
+    context: RequestContext = Depends(request_context),
 ) -> AnalysisResponse:
     if not file.filename or not file.filename.lower().endswith(".eml"):
         raise HTTPException(status_code=415, detail="Only .eml files are accepted.")
@@ -111,13 +137,18 @@ async def analyze_eml(
     except Exception as exc:
         logger.warning("Unable to parse uploaded EML: %s", type(exc).__name__)
         raise HTTPException(status_code=422, detail="The EML file could not be parsed safely.") from exc
-    return analyze(
+    result = analyze(
         sender_override or parsed.sender, parsed.subject, parsed.body, parsed.headers, parsed.attachments
     )
+    record_scan(context, "eml_upload", sender_override or parsed.sender, parsed.subject, parsed.body, result)
+    return result
 
 
 @app.post("/api/feedback", dependencies=[Depends(require_api_key)])
-def submit_feedback(payload: FeedbackInput) -> dict[str, str]:
+def submit_feedback(
+    payload: FeedbackInput,
+    context: RequestContext = Depends(request_context),
+) -> dict[str, str]:
     path = Path(settings.feedback_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     record = {
@@ -128,7 +159,20 @@ def submit_feedback(payload: FeedbackInput) -> dict[str, str]:
     }
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    record_feedback(context, payload.analysis_id, payload.label, payload.note)
     return {"status": "recorded"}
+
+
+@app.get(
+    "/api/scans/history",
+    response_model=list[ScanHistoryRecord],
+    dependencies=[Depends(require_api_key)],
+)
+def scan_history(
+    limit: int = Query(default=50, ge=1, le=200),
+    context: RequestContext = Depends(request_context),
+) -> list[ScanHistoryRecord]:
+    return list_scan_history(context, limit)
 
 
 @app.get(

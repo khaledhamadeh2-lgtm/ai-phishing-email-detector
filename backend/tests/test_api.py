@@ -37,6 +37,37 @@ def test_analyze_accepts_per_request_tuning_context() -> None:
     assert data["trust_signals"]
 
 
+def test_analyze_persists_redacted_scan_history_by_org(tmp_path) -> None:
+    database = tmp_path / "history.sqlite3"
+    _RATE_LIMIT_BUCKETS.clear()
+    with (
+        patch("app.storage.settings.database_path", str(database)),
+        patch("app.storage.settings.database_enabled", True),
+        patch("app.storage.settings.store_email_bodies", False),
+        patch("app.main.settings.database_path", str(database)),
+    ):
+        response = client.post(
+            "/api/analyze",
+            headers={"X-Org-ID": "acme", "X-User-ID": "analyst-1"},
+            json={
+                "sender": "Maya <maya@example.org>",
+                "subject": "Normal update",
+                "body": "Private text should be hashed, not stored in history.",
+            },
+        )
+        history = client.get("/api/scans/history?limit=5", headers={"X-Org-ID": "acme"})
+        other_history = client.get("/api/scans/history?limit=5", headers={"X-Org-ID": "other"})
+
+    assert response.status_code == 200
+    assert history.status_code == 200
+    data = history.json()
+    assert len(data) == 1
+    assert data[0]["org_id"] == "acme"
+    assert data[0]["body_sha256"]
+    assert "body" not in data[0]
+    assert other_history.json() == []
+
+
 def test_eml_upload() -> None:
     eml = b"From: sender@example.org\r\nSubject: Hello\r\n\r\nA normal plain text message."
     response = client.post("/api/analyze-eml", files={"file": ("sample.eml", eml, "message/rfc822")})

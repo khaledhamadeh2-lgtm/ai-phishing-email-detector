@@ -6,9 +6,13 @@ services:
     environment:
       PHISHGUARD_ALLOWED_ORIGINS: http://localhost:8080
       PHISHGUARD_MODEL_PATH: models/phishguard-v3.joblib
+      PHISHGUARD_DATABASE_PATH: /data/phishguard.sqlite3
+      PHISHGUARD_STORE_EMAIL_BODIES: "false"
     read_only: true
     tmpfs:
       - /tmp
+    volumes:
+      - app-data:/data
   web:
     build:
       context: ./frontend
@@ -36,4 +40,5 @@ services:
       - mailbox-state:/state
 
 volumes:
+  app-data:
   mailbox-state:

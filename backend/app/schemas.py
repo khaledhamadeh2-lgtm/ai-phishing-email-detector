@@ -47,6 +47,26 @@ class FeedbackInput(BaseModel):
     note: str = Field(default="", max_length=1_000)
 
 
+class TenantContext(BaseModel):
+    org_id: str
+    user_id: str
+
+
+class ScanHistoryRecord(BaseModel):
+    analysis_id: str
+    org_id: str
+    user_id: str
+    source: str
+    scanned_at: str
+    sender: str
+    subject: str
+    probability: float
+    verdict: str
+    risk_factors: list[str]
+    attachment_count: int
+    body_sha256: str
+
+
 class MailboxHistoryRecord(BaseModel):
     uid: str
     fingerprint: str

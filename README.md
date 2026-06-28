@@ -41,9 +41,12 @@ flowchart LR
     ML --> Fusion
     Attachments --> Fusion
     Fusion --> Report["Probability, verdict, evidence, actions"]
+    Report --> Store["Redacted scan database"]
     Worker --> History["Redacted mailbox history"]
     History --> UI
+    Store --> UI
     Report --> Feedback["False-positive / false-negative feedback"]
+    Feedback --> Store
     Report --> UI
 ```
 
@@ -67,6 +70,8 @@ flowchart LR
   noisy warnings on ordinary business email.
 - **Feedback loop:** users can label false positives, false negatives, and correct decisions by analysis ID. The
   feedback log intentionally avoids storing full email bodies so it can support future tuning with less privacy risk.
+- **SaaS foundation:** analysis requests can carry `X-Org-ID` and `X-User-ID` context. Redacted scan history and
+  feedback are persisted in SQLite for local demos, with a clean migration path to managed PostgreSQL.
 - **Mailbox dashboard:** automatic scans write a redacted history containing sender, subject, verdict, score, top
   reasons, attachment count, hashes, and analysis ID. Full email bodies are not stored by default.
 - **Fusion:** bounded weighted scoring maps to `Safe` (<35), `Suspicious` (35-69.9), or `Likely Phishing` (>=70).
@@ -117,6 +122,9 @@ also evaluates authentication results and sender/reply-to alignment.
 `POST /api/feedback` accepts an `analysis_id`, label, and optional note. Valid labels are `safe`, `suspicious`,
 `phishing`, `false_positive`, and `false_negative`.
 
+`GET /api/scans/history` returns recent tenant-scoped, redacted scan records. Use `X-Org-ID` and `X-User-ID` headers
+to simulate workspace/user context in local demos. The response includes a body hash, not the message body.
+
 `GET /api/mailbox/history` returns recent redacted mailbox scan records for the dashboard. It does not include message
 bodies.
 
@@ -129,6 +137,10 @@ PHISHGUARD_SUSPICIOUS_THRESHOLD=35
 PHISHGUARD_LIKELY_PHISHING_THRESHOLD=70
 PHISHGUARD_RATE_LIMIT_REQUESTS=120
 PHISHGUARD_RATE_LIMIT_WINDOW_SECONDS=60
+PHISHGUARD_DATABASE_ENABLED=true
+PHISHGUARD_DATABASE_PATH=/tmp/phishguard.sqlite3
+PHISHGUARD_STORE_EMAIL_BODIES=false
+PHISHGUARD_SCAN_RETENTION_DAYS=30
 ```
 
 Organization context can be configured through environment variables:
@@ -187,15 +199,23 @@ npm run dev
 
 Copy `.env.example` to `.env` only when overriding defaults. Never commit real email, credentials, or secrets.
 
+## SaaS roadmap
+
+The current implementation includes the first product-grade foundation: tenant-aware context, redacted persisted scan
+history, feedback events, retention settings, and Docker volume persistence. The path to real accounts, PostgreSQL,
+Gmail/Outlook OAuth, threat-intelligence APIs, production deployment, and billing is documented in
+[`docs/saas-roadmap.md`](docs/saas-roadmap.md).
+
 ## Security and privacy
 
 - Links are extracted as strings only; the application does not resolve, fetch, or render them.
 - Attachments are inspected only with static metadata/byte-pattern checks; they are not executed, rendered, or
   uploaded to third-party scanners.
 - Feedback stores analysis IDs, labels, timestamps, and optional notes instead of full private email bodies.
+- Scan history stores redacted metadata and SHA-256 body hashes by default, not full message bodies.
 - Input is validated and size-limited; errors avoid echoing submitted email content into logs.
 - API endpoints include simple in-memory rate limiting to reduce accidental abuse in small deployments.
-- The demo has no database and retains no messages.
+- Local Docker demos persist redacted history in a named volume; delete the volume to clear local state.
 - Production use should enable the optional API key and add TLS termination, rate limits, malware isolation, further
   redaction, and a documented retention policy.
 
@@ -220,8 +240,10 @@ docker compose build
 - SPF, DKIM, and DMARC findings are useful only when the supplied headers came from a trusted mail server.
 - Character features improve resistance to simple obfuscation but not new languages or novel social engineering.
 - Automatic mailbox scanning is detection-only and deliberately does not quarantine or modify messages.
+- The current account model uses demo tenant headers; real public SaaS should replace this with proper authentication.
 - Future work: campaign-grouped evaluation, multilingual models, SHAP-style feature explanations, feedback review,
-  attachment sandboxing in an isolated VM, QR/OCR analysis, privacy-conscious domain reputation, and drift monitoring.
+  PostgreSQL migrations, OAuth mailbox integrations, attachment sandboxing in an isolated VM, QR/OCR analysis,
+  privacy-conscious domain reputation, billing, and drift monitoring.
 
 ## What I learned
 

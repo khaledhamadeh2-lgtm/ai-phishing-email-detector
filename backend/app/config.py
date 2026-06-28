@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     likely_phishing_threshold: float = Field(default=70.0, ge=1.0, le=99.0)
     rate_limit_requests: int = Field(default=120, ge=10, le=10_000)
     rate_limit_window_seconds: int = Field(default=60, ge=10, le=3_600)
+    database_enabled: bool = True
+    database_path: str = "/tmp/phishguard.sqlite3"
+    store_email_bodies: bool = False
+    scan_retention_days: int = Field(default=30, ge=1, le=365)
     trusted_domains: str = ""
     trusted_senders: str = ""
     protected_brands: str = "microsoft,google,apple,paypal,amazon,netflix,docusign,dropbox"
