@@ -16,15 +16,29 @@ from .config import settings
 from .detector import analyze
 from .mailbox import read_mailbox_history
 from .parser import parse_eml
-from .schemas import AnalysisResponse, EmailInput, FeedbackInput, MailboxHistoryRecord, ScanHistoryRecord
+from .schemas import (
+    AnalysisResponse,
+    CurrentUser,
+    DashboardMetrics,
+    EmailInput,
+    FeedbackInput,
+    MailboxHistoryRecord,
+    OrgSettings,
+    ScanHistoryRecord,
+    ThreatIntelPreview,
+)
 from .storage import (
     RequestContext,
+    dashboard_metrics,
+    get_org_settings,
     init_storage,
     list_scan_history,
     normalize_context,
     record_feedback,
     record_scan,
+    save_org_settings,
 )
+from .threat_intel import preview_threat_intel
 
 logging.basicConfig(level=settings.log_level)
 logger = logging.getLogger(__name__)
@@ -86,7 +100,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.origins,
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PUT"],
     allow_headers=["Content-Type", "X-API-Key", "X-Org-ID", "X-User-ID"],
 )
 
@@ -101,19 +115,46 @@ def health() -> dict[str, str]:
     return {"status": "ok", "service": settings.app_name}
 
 
+@app.get("/api/me", response_model=CurrentUser, dependencies=[Depends(require_api_key)])
+def me(context: RequestContext = Depends(request_context)) -> CurrentUser:
+    return CurrentUser(
+        org_id=context.org_id,
+        user_id=context.user_id,
+        role=context.role,
+        auth_mode=settings.auth_mode,
+        permissions=["scan:write", "scan:read", "settings:read", "feedback:write"],
+    )
+
+
+@app.get("/api/org/settings", response_model=OrgSettings, dependencies=[Depends(require_api_key)])
+def org_settings(context: RequestContext = Depends(request_context)) -> OrgSettings:
+    return get_org_settings(context)
+
+
+@app.put("/api/org/settings", response_model=OrgSettings, dependencies=[Depends(require_api_key)])
+def update_org_settings(
+    payload: OrgSettings,
+    context: RequestContext = Depends(request_context),
+) -> OrgSettings:
+    return save_org_settings(context, payload)
+
+
 @app.post("/api/analyze", response_model=AnalysisResponse, dependencies=[Depends(require_api_key)])
 def analyze_email(
     payload: EmailInput,
     context: RequestContext = Depends(request_context),
 ) -> AnalysisResponse:
+    saved_settings = get_org_settings(context)
+    trusted_domains = payload.trusted_domains or saved_settings.trusted_domains
+    trusted_senders = payload.trusted_senders or saved_settings.trusted_senders
     result = analyze(
         payload.sender,
         payload.subject,
         payload.body,
         payload.headers,
-        trusted_domains=tuple(payload.trusted_domains),
-        trusted_senders=tuple(payload.trusted_senders),
-        sensitivity=payload.sensitivity,
+        trusted_domains=tuple(trusted_domains),
+        trusted_senders=tuple(trusted_senders),
+        sensitivity=payload.sensitivity or saved_settings.sensitivity,
     )
     record_scan(context, "pasted", payload.sender, payload.subject, payload.body, result)
     return result
@@ -173,6 +214,24 @@ def scan_history(
     context: RequestContext = Depends(request_context),
 ) -> list[ScanHistoryRecord]:
     return list_scan_history(context, limit)
+
+
+@app.get(
+    "/api/dashboard/metrics",
+    response_model=DashboardMetrics,
+    dependencies=[Depends(require_api_key)],
+)
+def metrics(context: RequestContext = Depends(request_context)) -> DashboardMetrics:
+    return dashboard_metrics(context)
+
+
+@app.post(
+    "/api/threat-intel/preview",
+    response_model=ThreatIntelPreview,
+    dependencies=[Depends(require_api_key)],
+)
+def threat_intel_preview(payload: EmailInput) -> ThreatIntelPreview:
+    return preview_threat_intel(f"{payload.subject}\n{payload.body}")
 
 
 @app.get(

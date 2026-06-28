@@ -72,6 +72,8 @@ flowchart LR
   feedback log intentionally avoids storing full email bodies so it can support future tuning with less privacy risk.
 - **SaaS foundation:** analysis requests can carry `X-Org-ID` and `X-User-ID` context. Redacted scan history and
   feedback are persisted in SQLite for local demos, with a clean migration path to managed PostgreSQL.
+- **Product dashboard:** workspace settings, dashboard metrics, scan history, and safe threat-intelligence preview
+  endpoints model the structure needed for a future SaaS.
 - **Mailbox dashboard:** automatic scans write a redacted history containing sender, subject, verdict, score, top
   reasons, attachment count, hashes, and analysis ID. Full email bodies are not stored by default.
 - **Fusion:** bounded weighted scoring maps to `Safe` (<35), `Suspicious` (35-69.9), or `Likely Phishing` (>=70).
@@ -122,8 +124,19 @@ also evaluates authentication results and sender/reply-to alignment.
 `POST /api/feedback` accepts an `analysis_id`, label, and optional note. Valid labels are `safe`, `suspicious`,
 `phishing`, `false_positive`, and `false_negative`.
 
+`GET /api/me` returns the current demo-auth context and role scaffold.
+
+`GET /api/org/settings` and `PUT /api/org/settings` manage trusted domains, known senders, sensitivity, retention,
+privacy mode, and mailbox alert threshold for a workspace.
+
+`GET /api/dashboard/metrics` returns SaaS-style summary metrics such as total scans, verdict counts, false positives,
+attachment scans, and top risk factors.
+
 `GET /api/scans/history` returns recent tenant-scoped, redacted scan records. Use `X-Org-ID` and `X-User-ID` headers
 to simulate workspace/user context in local demos. The response includes a body hash, not the message body.
+
+`POST /api/threat-intel/preview` extracts URL domains and shows which reputation providers are scaffolded. It does not
+perform external lookups by default.
 
 `GET /api/mailbox/history` returns recent redacted mailbox scan records for the dashboard. It does not include message
 bodies.
@@ -138,9 +151,13 @@ PHISHGUARD_LIKELY_PHISHING_THRESHOLD=70
 PHISHGUARD_RATE_LIMIT_REQUESTS=120
 PHISHGUARD_RATE_LIMIT_WINDOW_SECONDS=60
 PHISHGUARD_DATABASE_ENABLED=true
+PHISHGUARD_DATABASE_URL=sqlite:////tmp/phishguard.sqlite3
 PHISHGUARD_DATABASE_PATH=/tmp/phishguard.sqlite3
 PHISHGUARD_STORE_EMAIL_BODIES=false
 PHISHGUARD_SCAN_RETENTION_DAYS=30
+PHISHGUARD_AUTH_MODE=demo-headers
+PHISHGUARD_THREAT_INTEL_ENABLED=false
+PHISHGUARD_THREAT_INTEL_PROVIDERS=google_safe_browsing,virustotal,urlhaus
 ```
 
 Organization context can be configured through environment variables:
@@ -202,9 +219,11 @@ Copy `.env.example` to `.env` only when overriding defaults. Never commit real e
 ## SaaS roadmap
 
 The current implementation includes the first product-grade foundation: tenant-aware context, redacted persisted scan
-history, feedback events, retention settings, and Docker volume persistence. The path to real accounts, PostgreSQL,
-Gmail/Outlook OAuth, threat-intelligence APIs, production deployment, and billing is documented in
-[`docs/saas-roadmap.md`](docs/saas-roadmap.md).
+history, feedback events, workspace settings, dashboard metrics, safe threat-intelligence scaffolding, retention
+settings, and Docker volume persistence. The path to real accounts, PostgreSQL, Gmail/Outlook OAuth,
+threat-intelligence APIs, production deployment, and billing is documented in
+[`docs/saas-roadmap.md`](docs/saas-roadmap.md). A practical launch checklist is in
+[`docs/deployment-guide.md`](docs/deployment-guide.md).
 
 ## Security and privacy
 

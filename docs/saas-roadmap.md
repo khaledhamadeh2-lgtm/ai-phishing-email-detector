@@ -8,6 +8,10 @@ security controls.
 
 - Tenant-aware scan history using `X-Org-ID` and `X-User-ID` request context.
 - SQLite persistence for redacted scan events and feedback events.
+- Workspace settings API for trusted domains, known senders, sensitivity, retention, and privacy mode.
+- Dashboard metrics API for scan counts, verdict distribution, feedback counts, attachment counts, and top risks.
+- Demo `/api/me` auth scaffold with role/permission shape for future auth provider integration.
+- Threat-intelligence preview API that extracts domains and shows disabled provider scaffolding without external calls.
 - Scan history stores sender, subject, verdict, score, top reasons, source, attachment count, and body hash.
 - Full email bodies are not stored by default.
 - Configurable retention window through `PHISHGUARD_SCAN_RETENTION_DAYS`.

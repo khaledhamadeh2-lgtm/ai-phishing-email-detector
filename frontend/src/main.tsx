@@ -42,6 +42,32 @@ type ScanRecord = {
   attachment_count: number;
   body_sha256: string;
 };
+type Metrics = {
+  org_id: string;
+  total_scans: number;
+  safe_count: number;
+  suspicious_count: number;
+  likely_phishing_count: number;
+  attachment_scan_count: number;
+  feedback_count: number;
+  false_positive_count: number;
+  top_risk_factors: { title: string; count: number }[];
+};
+type OrgSettings = {
+  org_id: string;
+  trusted_domains: string[];
+  trusted_senders: string[];
+  sensitivity: string;
+  scan_retention_days: number;
+  store_email_bodies: boolean;
+  mailbox_alert_threshold: number;
+};
+type ThreatIntelPreview = {
+  enabled: boolean;
+  domains: string[];
+  findings: { provider: string; status: string; detail: string }[];
+  privacy_note: string;
+};
 
 const samples = {
   suspicious: {
@@ -56,12 +82,6 @@ const samples = {
   },
 };
 
-const defaultTuning = {
-  trustedDomains: "example.org, trustedvendor.com",
-  trustedSenders: "",
-  sensitivity: "balanced",
-};
-
 function riskClass(probability: number) {
   return probability >= 70 ? "danger" : probability >= 35 ? "warning" : "safe";
 }
@@ -70,12 +90,26 @@ function splitList(value: string) {
   return value.split(",").map((item) => item.trim()).filter(Boolean);
 }
 
+function joinList(value: string[]) {
+  return value.join(", ");
+}
+
 function App() {
   const [email, setEmail] = useState(samples.suspicious);
-  const [tuning, setTuning] = useState(defaultTuning);
   const [workspace, setWorkspace] = useState({ orgId: "demo-org", userId: "analyst-demo" });
+  const [settings, setSettings] = useState<OrgSettings>({
+    org_id: "demo-org",
+    trusted_domains: ["example.org", "trustedvendor.com"],
+    trusted_senders: [],
+    sensitivity: "balanced",
+    scan_retention_days: 30,
+    store_email_bodies: false,
+    mailbox_alert_threshold: 70,
+  });
   const [result, setResult] = useState<Result | null>(null);
   const [history, setHistory] = useState<ScanRecord[]>([]);
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [intel, setIntel] = useState<ThreatIntelPreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState("");
@@ -84,22 +118,42 @@ function App() {
   const tone = useMemo(() => (result ? riskClass(result.probability) : "neutral"), [result]);
 
   function tenantHeaders() {
-    return { "X-Org-ID": workspace.orgId, "X-User-ID": workspace.userId };
+    return { "X-Org-ID": workspace.orgId || "demo-org", "X-User-ID": workspace.userId || "anonymous" };
   }
 
-  async function loadHistory() {
+  async function refreshProductState() {
     setHistoryLoading(true);
     try {
-      const response = await fetch(`${api}/api/scans/history?limit=8`, { headers: tenantHeaders() });
-      if (response.ok) setHistory(await response.json());
+      const [settingsResponse, historyResponse, metricsResponse] = await Promise.all([
+        fetch(`${api}/api/org/settings`, { headers: tenantHeaders() }),
+        fetch(`${api}/api/scans/history?limit=8`, { headers: tenantHeaders() }),
+        fetch(`${api}/api/dashboard/metrics`, { headers: tenantHeaders() }),
+      ]);
+      if (settingsResponse.ok) setSettings(await settingsResponse.json());
+      if (historyResponse.ok) setHistory(await historyResponse.json());
+      if (metricsResponse.ok) setMetrics(await metricsResponse.json());
     } finally {
       setHistoryLoading(false);
     }
   }
 
   useEffect(() => {
-    void loadHistory();
+    void refreshProductState();
   }, [workspace.orgId]);
+
+  async function saveSettings() {
+    const response = await fetch(`${api}/api/org/settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...tenantHeaders() },
+      body: JSON.stringify({ ...settings, org_id: workspace.orgId || "demo-org" }),
+    });
+    if (!response.ok) {
+      setError("Settings could not be saved.");
+      return;
+    }
+    setSettings(await response.json());
+    setFeedback("Settings saved for this workspace.");
+  }
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -107,19 +161,28 @@ function App() {
     setError("");
     setFeedback("");
     try {
-      const response = await fetch(`${api}/api/analyze`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...tenantHeaders() },
-        body: JSON.stringify({
-          ...email,
-          trusted_domains: splitList(tuning.trustedDomains),
-          trusted_senders: splitList(tuning.trustedSenders),
-          sensitivity: tuning.sensitivity,
+      const payload = {
+        ...email,
+        trusted_domains: settings.trusted_domains,
+        trusted_senders: settings.trusted_senders,
+        sensitivity: settings.sensitivity,
+      };
+      const [analysisResponse, intelResponse] = await Promise.all([
+        fetch(`${api}/api/analyze`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...tenantHeaders() },
+          body: JSON.stringify(payload),
         }),
-      });
-      if (!response.ok) throw new Error("The analysis service could not process this message.");
-      setResult(await response.json());
-      await loadHistory();
+        fetch(`${api}/api/threat-intel/preview`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...tenantHeaders() },
+          body: JSON.stringify(payload),
+        }),
+      ]);
+      if (!analysisResponse.ok) throw new Error("The analysis service could not process this message.");
+      setResult(await analysisResponse.json());
+      if (intelResponse.ok) setIntel(await intelResponse.json());
+      await refreshProductState();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Analysis failed.");
     } finally {
@@ -142,7 +205,7 @@ function App() {
       });
       if (!response.ok) throw new Error("Only readable .eml files under the size limit are supported.");
       setResult(await response.json());
-      await loadHistory();
+      await refreshProductState();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Upload failed.");
     } finally {
@@ -164,6 +227,7 @@ function App() {
       });
       if (!response.ok) throw new Error("Feedback could not be saved.");
       setFeedback("Thanks — saved for future tuning.");
+      await refreshProductState();
     } catch (caught) {
       setFeedback(caught instanceof Error ? caught.message : "Feedback failed.");
     }
@@ -173,13 +237,27 @@ function App() {
     <main>
       <header>
         <div className="brand"><span className="shield">P</span> PHISHGUARD <b>AI</b></div>
-        <span className="status"><i /> SaaS foundation ready</span>
+        <span className="status"><i /> Product dashboard ready</span>
       </header>
 
       <section className="hero">
         <p className="eyebrow">Explainable threat intelligence</p>
         <h1>Know before you <span>click.</span></h1>
-        <p>Hybrid machine learning, tenant-aware scan history, mailbox monitoring, and security heuristics for suspicious email triage.</p>
+        <p>Hybrid ML, tenant-aware scan history, privacy-first settings, and safe threat-intel scaffolding.</p>
+      </section>
+
+      <section className="metrics-section panel">
+        <div className="panel-title">
+          <div><small>00 / PRODUCT METRICS</small><h2>{workspace.orgId || "demo-org"} dashboard</h2></div>
+          <button className="ghost" type="button" onClick={refreshProductState}>{historyLoading ? "Refreshing..." : "Refresh"}</button>
+        </div>
+        <div className="metric-grid">
+          <article><b>{metrics?.total_scans ?? 0}</b><span>Total scans</span></article>
+          <article><b>{metrics?.likely_phishing_count ?? 0}</b><span>Likely phishing</span></article>
+          <article><b>{metrics?.suspicious_count ?? 0}</b><span>Suspicious</span></article>
+          <article><b>{metrics?.false_positive_count ?? 0}</b><span>False positives</span></article>
+        </div>
+        {!!metrics?.top_risk_factors.length && <div className="reason-chips metric-risks">{metrics.top_risk_factors.map((item) => <em key={item.title}>{item.title}: {item.count}</em>)}</div>}
       </section>
 
       <section className="workspace">
@@ -203,18 +281,22 @@ function App() {
 
         <section className="panel tuning">
           <div className="panel-title">
-            <div><small>02 / WORKSPACE</small><h2>Org settings</h2></div>
+            <div><small>02 / SETTINGS</small><h2>Workspace settings</h2></div>
+            <button className="ghost" type="button" onClick={saveSettings}>Save</button>
           </div>
-          <p className="quiet">Demo tenant headers simulate real accounts now; these map cleanly to proper login later.</p>
+          <p className="quiet">Demo tenant headers simulate accounts now; production auth can replace this cleanly.</p>
           <label>Organization ID<input value={workspace.orgId} onChange={(e) => setWorkspace({...workspace, orgId: e.target.value})} /></label>
           <label>User ID<input value={workspace.userId} onChange={(e) => setWorkspace({...workspace, userId: e.target.value})} /></label>
-          <label>Trusted domains<input value={tuning.trustedDomains} onChange={(e) => setTuning({...tuning, trustedDomains: e.target.value})} /></label>
-          <label>Known senders<input placeholder="maya@example.org, billing@vendor.com" value={tuning.trustedSenders} onChange={(e) => setTuning({...tuning, trustedSenders: e.target.value})} /></label>
-          <label>Sensitivity<select value={tuning.sensitivity} onChange={(e) => setTuning({...tuning, sensitivity: e.target.value})}>
+          <label>Trusted domains<input value={joinList(settings.trusted_domains)} onChange={(e) => setSettings({...settings, trusted_domains: splitList(e.target.value)})} /></label>
+          <label>Known senders<input placeholder="maya@example.org, billing@vendor.com" value={joinList(settings.trusted_senders)} onChange={(e) => setSettings({...settings, trusted_senders: splitList(e.target.value)})} /></label>
+          <label>Sensitivity<select value={settings.sensitivity} onChange={(e) => setSettings({...settings, sensitivity: e.target.value})}>
             <option value="balanced">Balanced</option>
             <option value="recall">Catch more phishing</option>
             <option value="precision">Reduce false positives</option>
           </select></label>
+          <label>Retention days<input type="number" min={1} max={365} value={settings.scan_retention_days} onChange={(e) => setSettings({...settings, scan_retention_days: Number(e.target.value)})} /></label>
+          <label>Mailbox alert threshold<input type="number" min={0} max={100} value={settings.mailbox_alert_threshold} onChange={(e) => setSettings({...settings, mailbox_alert_threshold: Number(e.target.value)})} /></label>
+          <label className="check"><input type="checkbox" checked={settings.store_email_bodies} onChange={(e) => setSettings({...settings, store_email_bodies: e.target.checked})} /> Store email body previews</label>
         </section>
 
         <aside className={`panel report ${tone}`} aria-live="polite">
@@ -230,6 +312,7 @@ function App() {
               <h3>Detected signals <span>{result.risk_factors.length}</span></h3>
               <div className="findings">{result.risk_factors.length ? result.risk_factors.map((factor) => <article key={factor.id}><i className={factor.severity}>!</i><div><b>{factor.title}</b><p>{factor.detail}</p></div><span>+{factor.weight}</span></article>) : <p className="quiet">No strong rule-based risk indicators were detected.</p>}</div>
               {!!result.attachments.length && <><h3>Attachment triage <span>{result.attachments.length}</span></h3><div className="findings">{result.attachments.map((attachment) => <article key={attachment.sha256}><i className={attachment.risk_level}>{attachment.risk_level === "low" ? "i" : "!"}</i><div><b>{attachment.filename}</b><p>{attachment.reasons.join(" ")}</p><small>{attachment.content_type} · {(attachment.size_bytes / 1024).toFixed(1)} KB · hash {attachment.sha256.slice(0, 12)}...</small></div><span>+{attachment.score}</span></article>)}</div></>}
+              {!!intel && <><h3>Threat intel preview <span>{intel.domains.length}</span></h3><div className="findings">{intel.findings.map((finding) => <article key={`${finding.provider}-${finding.status}`}><i className="low">i</i><div><b>{finding.provider}</b><p>{finding.detail}</p></div><span>{finding.status}</span></article>)}</div><p className="privacy-note">{intel.privacy_note}</p></>}
               <h3>Recommended response</h3>
               <ol>{result.recommendations.map((item) => <li key={item}>{item}</li>)}</ol>
               <h3>Improve this detector</h3>
@@ -249,7 +332,7 @@ function App() {
       <section className="history-section panel">
         <div className="panel-title">
           <div><small>04 / SAAS HISTORY</small><h2>Recent scans for {workspace.orgId || "demo-org"}</h2></div>
-          <button className="ghost" type="button" onClick={loadHistory}>{historyLoading ? "Refreshing..." : "Refresh"}</button>
+          <button className="ghost" type="button" onClick={refreshProductState}>{historyLoading ? "Refreshing..." : "Refresh"}</button>
         </div>
         <p className="privacy-note">Stores sender, subject, score, verdict, reasons, source, attachment count, and body hash only — never full email bodies by default.</p>
         <div className="history-grid">

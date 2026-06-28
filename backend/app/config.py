@@ -29,9 +29,13 @@ class Settings(BaseSettings):
     rate_limit_requests: int = Field(default=120, ge=10, le=10_000)
     rate_limit_window_seconds: int = Field(default=60, ge=10, le=3_600)
     database_enabled: bool = True
+    database_url: str = "sqlite:////tmp/phishguard.sqlite3"
     database_path: str = "/tmp/phishguard.sqlite3"
     store_email_bodies: bool = False
     scan_retention_days: int = Field(default=30, ge=1, le=365)
+    auth_mode: str = "demo-headers"
+    threat_intel_enabled: bool = False
+    threat_intel_providers: str = "google_safe_browsing,virustotal,urlhaus"
     trusted_domains: str = ""
     trusted_senders: str = ""
     protected_brands: str = "microsoft,google,apple,paypal,amazon,netflix,docusign,dropbox"
@@ -61,6 +65,14 @@ class Settings(BaseSettings):
     @property
     def protected_brand_list(self) -> list[str]:
         return [brand.strip().lower() for brand in self.protected_brands.split(",") if brand.strip()]
+
+    @property
+    def threat_intel_provider_list(self) -> list[str]:
+        return [
+            provider.strip().lower()
+            for provider in self.threat_intel_providers.split(",")
+            if provider.strip()
+        ]
 
 
 settings = Settings()

@@ -1,0 +1,45 @@
+-- PhishGuard AI SaaS foundation schema.
+-- SQLite-compatible for local demos. For PostgreSQL, replace INTEGER PRIMARY KEY AUTOINCREMENT with
+-- BIGSERIAL PRIMARY KEY and use TIMESTAMPTZ for timestamp fields.
+
+CREATE TABLE IF NOT EXISTS scan_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    analysis_id TEXT NOT NULL,
+    org_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    scanned_at TEXT NOT NULL,
+    sender TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    probability REAL NOT NULL,
+    verdict TEXT NOT NULL,
+    risk_factors_json TEXT NOT NULL,
+    attachment_count INTEGER NOT NULL,
+    body_sha256 TEXT NOT NULL,
+    body_preview TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_scan_events_org_time ON scan_events(org_id, scanned_at DESC);
+
+CREATE TABLE IF NOT EXISTS feedback_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    analysis_id TEXT NOT NULL,
+    org_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    note TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_events_analysis ON feedback_events(analysis_id);
+
+CREATE TABLE IF NOT EXISTS org_settings (
+    org_id TEXT PRIMARY KEY,
+    trusted_domains_json TEXT NOT NULL,
+    trusted_senders_json TEXT NOT NULL,
+    sensitivity TEXT NOT NULL,
+    scan_retention_days INTEGER NOT NULL,
+    store_email_bodies INTEGER NOT NULL,
+    mailbox_alert_threshold REAL NOT NULL,
+    updated_at TEXT NOT NULL
+);

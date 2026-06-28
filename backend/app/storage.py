@@ -9,19 +9,21 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .config import settings
-from .schemas import AnalysisResponse, ScanHistoryRecord
+from .schemas import AnalysisResponse, DashboardMetrics, OrgSettings, ScanHistoryRecord
 
 
 @dataclass(frozen=True)
 class RequestContext:
     org_id: str = "demo-org"
     user_id: str = "anonymous"
+    role: str = "analyst"
 
 
 def normalize_context(org_id: str = "", user_id: str = "") -> RequestContext:
     return RequestContext(
         org_id=(org_id or "demo-org").strip()[:120],
         user_id=(user_id or "anonymous").strip()[:120],
+        role="analyst",
     )
 
 
@@ -82,6 +84,20 @@ def init_storage() -> None:
         )
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_feedback_events_analysis ON feedback_events(analysis_id)"
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS org_settings (
+                org_id TEXT PRIMARY KEY,
+                trusted_domains_json TEXT NOT NULL,
+                trusted_senders_json TEXT NOT NULL,
+                sensitivity TEXT NOT NULL,
+                scan_retention_days INTEGER NOT NULL,
+                store_email_bodies INTEGER NOT NULL,
+                mailbox_alert_threshold REAL NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
         )
 
 
@@ -182,3 +198,126 @@ def record_feedback(context: RequestContext, analysis_id: str, label: str, note:
             """,
             (analysis_id, context.org_id, context.user_id, label, note, datetime.now(UTC).isoformat()),
         )
+
+
+def get_org_settings(context: RequestContext) -> OrgSettings:
+    if not settings.database_enabled:
+        return _default_org_settings(context.org_id)
+    init_storage()
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT * FROM org_settings WHERE org_id = ?",
+            (context.org_id,),
+        ).fetchone()
+    if row is None:
+        return _default_org_settings(context.org_id)
+    return OrgSettings(
+        org_id=row["org_id"],
+        trusted_domains=json.loads(row["trusted_domains_json"]),
+        trusted_senders=json.loads(row["trusted_senders_json"]),
+        sensitivity=row["sensitivity"],
+        scan_retention_days=row["scan_retention_days"],
+        store_email_bodies=bool(row["store_email_bodies"]),
+        mailbox_alert_threshold=row["mailbox_alert_threshold"],
+    )
+
+
+def save_org_settings(context: RequestContext, payload: OrgSettings) -> OrgSettings:
+    if not settings.database_enabled:
+        return payload
+    init_storage()
+    normalized = OrgSettings(
+        org_id=context.org_id,
+        trusted_domains=sorted({item.strip().lower() for item in payload.trusted_domains if item.strip()}),
+        trusted_senders=sorted({item.strip().lower() for item in payload.trusted_senders if item.strip()}),
+        sensitivity=payload.sensitivity,
+        scan_retention_days=payload.scan_retention_days,
+        store_email_bodies=payload.store_email_bodies,
+        mailbox_alert_threshold=payload.mailbox_alert_threshold,
+    )
+    with _connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO org_settings (
+                org_id, trusted_domains_json, trusted_senders_json, sensitivity,
+                scan_retention_days, store_email_bodies, mailbox_alert_threshold, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(org_id) DO UPDATE SET
+                trusted_domains_json = excluded.trusted_domains_json,
+                trusted_senders_json = excluded.trusted_senders_json,
+                sensitivity = excluded.sensitivity,
+                scan_retention_days = excluded.scan_retention_days,
+                store_email_bodies = excluded.store_email_bodies,
+                mailbox_alert_threshold = excluded.mailbox_alert_threshold,
+                updated_at = excluded.updated_at
+            """,
+            (
+                normalized.org_id,
+                json.dumps(normalized.trusted_domains, ensure_ascii=False),
+                json.dumps(normalized.trusted_senders, ensure_ascii=False),
+                normalized.sensitivity,
+                normalized.scan_retention_days,
+                int(normalized.store_email_bodies),
+                normalized.mailbox_alert_threshold,
+                datetime.now(UTC).isoformat(),
+            ),
+        )
+    return normalized
+
+
+def dashboard_metrics(context: RequestContext) -> DashboardMetrics:
+    if not settings.database_enabled:
+        return DashboardMetrics(
+            org_id=context.org_id,
+            total_scans=0,
+            safe_count=0,
+            suspicious_count=0,
+            likely_phishing_count=0,
+            attachment_scan_count=0,
+            feedback_count=0,
+            false_positive_count=0,
+            top_risk_factors=[],
+        )
+    init_storage()
+    with _connect() as connection:
+        rows = connection.execute(
+            "SELECT verdict, risk_factors_json, attachment_count FROM scan_events WHERE org_id = ?",
+            (context.org_id,),
+        ).fetchall()
+        feedback_rows = connection.execute(
+            "SELECT label FROM feedback_events WHERE org_id = ?",
+            (context.org_id,),
+        ).fetchall()
+    verdicts = [row["verdict"] for row in rows]
+    risk_counts: dict[str, int] = {}
+    for row in rows:
+        for title in json.loads(row["risk_factors_json"]):
+            risk_counts[title] = risk_counts.get(title, 0) + 1
+    top_risks = [
+        {"title": title, "count": count}
+        for title, count in sorted(risk_counts.items(), key=lambda item: item[1], reverse=True)[:5]
+    ]
+    return DashboardMetrics(
+        org_id=context.org_id,
+        total_scans=len(rows),
+        safe_count=verdicts.count("Safe"),
+        suspicious_count=verdicts.count("Suspicious"),
+        likely_phishing_count=verdicts.count("Likely Phishing"),
+        attachment_scan_count=sum(1 for row in rows if row["attachment_count"] > 0),
+        feedback_count=len(feedback_rows),
+        false_positive_count=sum(1 for row in feedback_rows if row["label"] == "false_positive"),
+        top_risk_factors=top_risks,
+    )
+
+
+def _default_org_settings(org_id: str) -> OrgSettings:
+    return OrgSettings(
+        org_id=org_id,
+        trusted_domains=settings.trusted_domain_list,
+        trusted_senders=settings.trusted_sender_list,
+        sensitivity="balanced",
+        scan_retention_days=settings.scan_retention_days,
+        store_email_bodies=settings.store_email_bodies,
+        mailbox_alert_threshold=settings.mailbox_alert_threshold,
+    )

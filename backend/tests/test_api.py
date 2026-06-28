@@ -68,6 +68,61 @@ def test_analyze_persists_redacted_scan_history_by_org(tmp_path) -> None:
     assert other_history.json() == []
 
 
+def test_current_user_settings_metrics_and_threat_intel(tmp_path) -> None:
+    database = tmp_path / "product.sqlite3"
+    _RATE_LIMIT_BUCKETS.clear()
+    headers = {"X-Org-ID": "acme", "X-User-ID": "analyst-1"}
+    with (
+        patch("app.storage.settings.database_path", str(database)),
+        patch("app.storage.settings.database_enabled", True),
+        patch("app.storage.settings.store_email_bodies", False),
+    ):
+        me = client.get("/api/me", headers=headers)
+        settings_response = client.put(
+            "/api/org/settings",
+            headers=headers,
+            json={
+                "org_id": "ignored-client-org",
+                "trusted_domains": ["example.org"],
+                "trusted_senders": ["maya@example.org"],
+                "sensitivity": "precision",
+                "scan_retention_days": 45,
+                "store_email_bodies": False,
+                "mailbox_alert_threshold": 80,
+            },
+        )
+        client.post(
+            "/api/analyze",
+            headers=headers,
+            json={
+                "sender": "Maya <maya@example.org>",
+                "subject": "Normal update",
+                "body": "Notes live at https://example.org/notes.",
+            },
+        )
+        metrics = client.get("/api/dashboard/metrics", headers=headers)
+        intel = client.post(
+            "/api/threat-intel/preview",
+            headers=headers,
+            json={
+                "sender": "Maya <maya@example.org>",
+                "subject": "Normal update",
+                "body": "Notes live at https://example.org/notes.",
+            },
+        )
+
+    assert me.status_code == 200
+    assert me.json()["auth_mode"] == "demo-headers"
+    assert settings_response.status_code == 200
+    assert settings_response.json()["org_id"] == "acme"
+    assert settings_response.json()["trusted_domains"] == ["example.org"]
+    assert metrics.status_code == 200
+    assert metrics.json()["total_scans"] == 1
+    assert intel.status_code == 200
+    assert intel.json()["domains"] == ["example.org"]
+    assert intel.json()["enabled"] is False
+
+
 def test_eml_upload() -> None:
     eml = b"From: sender@example.org\r\nSubject: Hello\r\n\r\nA normal plain text message."
     response = client.post("/api/analyze-eml", files={"file": ("sample.eml", eml, "message/rfc822")})

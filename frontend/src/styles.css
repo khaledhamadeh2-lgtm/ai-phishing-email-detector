@@ -11,3 +11,13 @@ select:focus{border-color:#58e6aa99;box-shadow:0 0 0 3px #58e6aa12}
 .thresholds{display:flex;flex-wrap:wrap;gap:8px;margin:-8px 0 15px}
 .thresholds span{font:10px "Space Mono";color:#9db0a9;background:#ffffff0a;border:1px solid #ffffff12;border-radius:999px;padding:5px 8px}
 @media(max-width:900px){.composer,.tuning,.report{grid-column:auto;grid-row:auto}}
+.metrics-section{max-width:1240px;margin:0 auto 18px}
+.metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.metric-grid article{border:1px solid #ffffff12;background:#07110f99;border-radius:13px;padding:16px}
+.metric-grid b{display:block;font:700 34px "Space Mono";color:#58e6aa}
+.metric-grid span{color:#9db0a9;font-size:12px}
+.metric-risks{margin-top:14px}
+.check{display:flex;gap:10px;align-items:center}
+.check input{width:auto;margin:0}
+@media(max-width:900px){.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.metrics-section{margin-inline:12px}}
+@media(max-width:540px){.metric-grid{grid-template-columns:1fr}}

@@ -50,6 +50,50 @@ class FeedbackInput(BaseModel):
 class TenantContext(BaseModel):
     org_id: str
     user_id: str
+    role: str = "analyst"
+
+
+class CurrentUser(BaseModel):
+    org_id: str
+    user_id: str
+    role: str
+    auth_mode: str
+    permissions: list[str]
+
+
+class OrgSettings(BaseModel):
+    org_id: str
+    trusted_domains: list[str] = Field(default_factory=list, max_length=50)
+    trusted_senders: list[str] = Field(default_factory=list, max_length=100)
+    sensitivity: str = Field(default="balanced", pattern="^(balanced|recall|precision)$")
+    scan_retention_days: int = Field(default=30, ge=1, le=365)
+    store_email_bodies: bool = False
+    mailbox_alert_threshold: float = Field(default=70.0, ge=0.0, le=100.0)
+
+
+class DashboardMetrics(BaseModel):
+    org_id: str
+    total_scans: int
+    safe_count: int
+    suspicious_count: int
+    likely_phishing_count: int
+    attachment_scan_count: int
+    feedback_count: int
+    false_positive_count: int
+    top_risk_factors: list[dict[str, int | str]]
+
+
+class ThreatIntelFinding(BaseModel):
+    provider: str
+    status: str
+    detail: str
+
+
+class ThreatIntelPreview(BaseModel):
+    enabled: bool
+    domains: list[str]
+    findings: list[ThreatIntelFinding]
+    privacy_note: str
 
 
 class ScanHistoryRecord(BaseModel):
