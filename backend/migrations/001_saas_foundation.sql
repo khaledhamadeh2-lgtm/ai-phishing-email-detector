@@ -68,3 +68,50 @@ CREATE TABLE IF NOT EXISTS audit_events (
 
 CREATE INDEX IF NOT EXISTS idx_audit_events_org_time
 ON audit_events(org_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS users (
+    user_id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS organizations (
+    org_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS organization_members (
+    org_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    joined_at TEXT NOT NULL,
+    PRIMARY KEY (org_id, user_id),
+    FOREIGN KEY (org_id) REFERENCES organizations(org_id),
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_org_members_user
+ON organization_members(user_id);
+
+CREATE TABLE IF NOT EXISTS oauth_states (
+    state TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    redirect_uri TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS mailbox_integrations (
+    org_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    account_email TEXT NOT NULL,
+    scopes_json TEXT NOT NULL,
+    encrypted_token_json TEXT NOT NULL,
+    connected_at TEXT NOT NULL,
+    status TEXT NOT NULL,
+    PRIMARY KEY (org_id, provider)
+);

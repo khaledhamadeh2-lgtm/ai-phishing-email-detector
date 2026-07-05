@@ -7,10 +7,13 @@ security controls.
 ## Implemented foundation
 
 - Tenant-aware scan history using `X-Org-ID` and `X-User-ID` request context.
+- Local signup/login with PBKDF2 password hashing, signed bearer tokens, organizations, owner role, and member listing.
 - SQLite persistence for redacted scan events and feedback events.
 - Workspace settings API for trusted domains, known senders, sensitivity, retention, and privacy mode.
 - Dashboard metrics API for scan counts, verdict distribution, feedback counts, attachment counts, and top risks.
-- Demo `/api/me` auth scaffold with role/permission shape for future auth provider integration.
+- `/api/me` auth context with role/permission shape for future auth provider integration.
+- Gmail and Outlook OAuth connection endpoints with read-only scopes, short-lived state, connection status, and
+  disconnect support. Provider authorization-code exchange is intentionally documented as the next production step.
 - Subscription and usage-metering endpoints for plan limits, monthly scan quota, billing status, and future Stripe
   integration.
 - Audit log endpoint for scans, feedback, settings changes, subscription changes, and compliance actions.
@@ -38,14 +41,13 @@ Move from local SQLite to managed PostgreSQL before public users:
 
 Recommended providers: Supabase, Neon, Render Postgres, Railway, Fly Postgres, or AWS RDS.
 
-### 2. Real accounts and organizations
+### 2. Production accounts and organizations
 
-Replace demo tenant headers with real authentication:
+Upgrade local auth to production identity:
 
-- User sign up and login.
-- Email verification and password reset.
-- Organization/workspace creation.
+- Email verification, password reset, MFA, account lockout, and session revocation.
 - Roles: owner, admin, analyst, viewer.
+- Invitations and role changes.
 - Per-organization trusted domains, known senders, retention policy, and mailbox integrations.
 
 Recommended options: Clerk, Auth0, Supabase Auth, or a carefully implemented FastAPI auth service.
@@ -61,6 +63,8 @@ Use provider OAuth with least-privilege, read-only access:
 - Disconnect/revoke integration button.
 - Clear permission explanation before connecting.
 - Store refresh tokens encrypted using a managed secret/KMS service.
+- Server-side code-to-token exchange and refresh-token rotation.
+- Provider verification/approval flow before public launch.
 
 The scanner should continue to avoid marking messages as read, moving messages, replying, deleting, or quarantining
 without a separate explicit product feature and user consent.

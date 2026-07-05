@@ -58,9 +58,42 @@ class TenantContext(BaseModel):
 class CurrentUser(BaseModel):
     org_id: str
     user_id: str
+    email: str = ""
     role: str
     auth_mode: str
     permissions: list[str]
+
+
+class SignupInput(BaseModel):
+    email: str = Field(min_length=5, max_length=254)
+    password: str = Field(min_length=10, max_length=256)
+    organization_name: str = Field(min_length=2, max_length=120)
+
+
+class LoginInput(BaseModel):
+    email: str = Field(min_length=5, max_length=254)
+    password: str = Field(min_length=1, max_length=256)
+
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in_seconds: int
+    user: CurrentUser
+
+
+class OrganizationMember(BaseModel):
+    user_id: str
+    email: str
+    role: str
+    joined_at: str
+
+
+class OrganizationSummary(BaseModel):
+    org_id: str
+    name: str
+    role: str
+    members: list[OrganizationMember]
 
 
 class SubscriptionPlan(BaseModel):
@@ -129,6 +162,31 @@ class SecurityPosture(BaseModel):
     rate_limit: str
     controls: list[str]
     recommended_next_steps: list[str]
+
+
+class OAuthConnectResponse(BaseModel):
+    provider: str
+    authorization_url: str
+    state: str
+    scopes: list[str]
+    redirect_uri: str
+    privacy_note: str
+
+
+class OAuthCallbackInput(BaseModel):
+    provider: str = Field(pattern="^(gmail|outlook)$")
+    state: str = Field(min_length=16, max_length=256)
+    code: str = Field(min_length=4, max_length=4096)
+
+
+class MailboxIntegration(BaseModel):
+    provider: str
+    connected: bool
+    account_email: str = ""
+    scopes: list[str]
+    connected_at: str = ""
+    status: str
+    privacy_note: str
 
 
 class OrgSettings(BaseModel):

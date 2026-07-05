@@ -1,3 +1,4 @@
+import urllib.parse
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -112,7 +113,7 @@ def test_current_user_settings_metrics_and_threat_intel(tmp_path) -> None:
         )
 
     assert me.status_code == 200
-    assert me.json()["auth_mode"] == "demo-headers"
+    assert me.json()["auth_mode"] == "local"
     assert settings_response.status_code == 200
     assert settings_response.json()["org_id"] == "acme"
     assert settings_response.json()["trusted_domains"] == ["example.org"]
@@ -121,6 +122,135 @@ def test_current_user_settings_metrics_and_threat_intel(tmp_path) -> None:
     assert intel.status_code == 200
     assert intel.json()["domains"] == ["example.org"]
     assert intel.json()["enabled"] is False
+
+
+def test_signup_login_bearer_auth_and_organization_scope(tmp_path) -> None:
+    database = tmp_path / "auth.sqlite3"
+    _RATE_LIMIT_BUCKETS.clear()
+    with (
+        patch("app.storage.settings.database_path", str(database)),
+        patch("app.storage.settings.database_enabled", True),
+        patch("app.auth.settings.auth_secret_key", "test-secret"),
+    ):
+        signup = client.post(
+            "/api/auth/signup",
+            json={
+                "email": "owner@acme.test",
+                "password": "correct horse battery staple",
+                "organization_name": "Acme Security",
+            },
+        )
+        duplicate = client.post(
+            "/api/auth/signup",
+            json={
+                "email": "OWNER@ACME.TEST",
+                "password": "correct horse battery staple",
+                "organization_name": "Acme Security",
+            },
+        )
+        login = client.post(
+            "/api/auth/login",
+            json={"email": "owner@acme.test", "password": "correct horse battery staple"},
+        )
+        token = login.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        me = client.get("/api/me", headers=headers)
+        org = client.get("/api/org", headers=headers)
+        analysis = client.post("/api/analyze", headers=headers, json={"body": "Normal update."})
+        history = client.get("/api/scans/history", headers=headers)
+
+    assert signup.status_code == 200
+    assert signup.json()["user"]["role"] == "owner"
+    assert duplicate.status_code == 409
+    assert login.status_code == 200
+    assert me.json()["email"] == "owner@acme.test"
+    assert org.json()["name"] == "Acme Security"
+    assert org.json()["members"][0]["email"] == "owner@acme.test"
+    assert analysis.status_code == 200
+    assert history.json()[0]["org_id"] == me.json()["org_id"]
+
+
+def test_login_rejects_wrong_password(tmp_path) -> None:
+    database = tmp_path / "auth-fail.sqlite3"
+    _RATE_LIMIT_BUCKETS.clear()
+    with (
+        patch("app.storage.settings.database_path", str(database)),
+        patch("app.storage.settings.database_enabled", True),
+    ):
+        client.post(
+            "/api/auth/signup",
+            json={
+                "email": "owner@example.test",
+                "password": "correct horse battery staple",
+                "organization_name": "Example",
+            },
+        )
+        response = client.post(
+            "/api/auth/login",
+            json={"email": "owner@example.test", "password": "wrong password"},
+        )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid email or password."
+
+
+def test_gmail_oauth_connect_callback_and_disconnect(tmp_path) -> None:
+    database = tmp_path / "oauth.sqlite3"
+    _RATE_LIMIT_BUCKETS.clear()
+    with (
+        patch("app.storage.settings.database_path", str(database)),
+        patch("app.storage.settings.database_enabled", True),
+        patch("app.auth.settings.auth_secret_key", "test-secret"),
+        patch("app.oauth.settings.public_base_url", "https://api.example.test"),
+        patch("app.oauth.settings.gmail_oauth_client_id", "gmail-client-id"),
+    ):
+        signup = client.post(
+            "/api/auth/signup",
+            json={
+                "email": "owner@acme.test",
+                "password": "correct horse battery staple",
+                "organization_name": "Acme Security",
+            },
+        )
+        headers = {"Authorization": f"Bearer {signup.json()['access_token']}"}
+        connect = client.get("/api/oauth/gmail/connect", headers=headers)
+        state = connect.json()["state"]
+        callback = client.post(
+            "/api/oauth/callback",
+            headers=headers,
+            json={"provider": "gmail", "state": state, "code": "provider-auth-code"},
+        )
+        integrations = client.get("/api/oauth/integrations", headers=headers)
+        disconnected = client.delete("/api/oauth/gmail", headers=headers)
+        integrations_after = client.get("/api/oauth/integrations", headers=headers)
+
+    assert connect.status_code == 200
+    parsed_url = urllib.parse.urlparse(connect.json()["authorization_url"])
+    query = urllib.parse.parse_qs(parsed_url.query)
+    assert parsed_url.hostname == "accounts.google.com"
+    assert query["scope"] == ["https://www.googleapis.com/auth/gmail.readonly"]
+    assert callback.status_code == 200
+    assert callback.json()["provider"] == "gmail"
+    assert callback.json()["status"] == "connected_pending_token_exchange"
+    assert integrations.json()[0]["connected"] is True
+    assert disconnected.json() == {"status": "disconnected", "provider": "gmail"}
+    assert integrations_after.json() == []
+
+
+def test_oauth_callback_rejects_invalid_state(tmp_path) -> None:
+    database = tmp_path / "oauth-invalid.sqlite3"
+    _RATE_LIMIT_BUCKETS.clear()
+    with (
+        patch("app.storage.settings.database_path", str(database)),
+        patch("app.storage.settings.database_enabled", True),
+    ):
+        response = client.post(
+            "/api/oauth/callback",
+            json={"provider": "outlook", "state": "invalid-state-value", "code": "provider-auth-code"},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "OAuth state is invalid or expired."
 
 
 def test_subscription_usage_audit_and_compliance_controls(tmp_path) -> None:

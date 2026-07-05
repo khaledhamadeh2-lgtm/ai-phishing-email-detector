@@ -15,6 +15,9 @@ from .schemas import (
     ComplianceExport,
     DashboardMetrics,
     DataDeletionResponse,
+    MailboxIntegration,
+    OrganizationMember,
+    OrganizationSummary,
     OrgSettings,
     ScanHistoryRecord,
     SecurityPosture,
@@ -28,6 +31,7 @@ class RequestContext:
     org_id: str = "demo-org"
     user_id: str = "anonymous"
     role: str = "analyst"
+    email: str = ""
 
 
 def normalize_context(org_id: str = "", user_id: str = "") -> RequestContext:
@@ -141,6 +145,66 @@ def init_storage() -> None:
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_audit_events_org_time ON audit_events(org_id, created_at DESC)"
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                user_id TEXT PRIMARY KEY,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS organizations (
+                org_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS organization_members (
+                org_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                joined_at TEXT NOT NULL,
+                PRIMARY KEY (org_id, user_id),
+                FOREIGN KEY (org_id) REFERENCES organizations(org_id),
+                FOREIGN KEY (user_id) REFERENCES users(user_id)
+            )
+            """
+        )
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_org_members_user ON organization_members(user_id)")
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS oauth_states (
+                state TEXT PRIMARY KEY,
+                org_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                redirect_uri TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mailbox_integrations (
+                org_id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                account_email TEXT NOT NULL,
+                scopes_json TEXT NOT NULL,
+                encrypted_token_json TEXT NOT NULL,
+                connected_at TEXT NOT NULL,
+                status TEXT NOT NULL,
+                PRIMARY KEY (org_id, provider)
+            )
+            """
+        )
 
 
 def enforce_retention() -> None:
@@ -247,6 +311,254 @@ def record_feedback(context: RequestContext, analysis_id: str, label: str, note:
             (analysis_id, context.org_id, context.user_id, label, note, datetime.now(UTC).isoformat()),
         )
     record_audit_event(context, "feedback.created", analysis_id, {"label": label})
+
+
+def create_user_with_organization(
+    email: str,
+    password_hash: str,
+    organization_name: str,
+) -> RequestContext:
+    if not settings.database_enabled:
+        raise ValueError("Database storage must be enabled for local authentication.")
+    init_storage()
+    user_id = f"user_{hashlib.sha256(email.encode('utf-8')).hexdigest()[:16]}"
+    org_seed = f"{organization_name}:{email}:{datetime.now(UTC).isoformat()}"
+    org_id = f"org_{hashlib.sha256(org_seed.encode('utf-8')).hexdigest()[:16]}"
+    now = datetime.now(UTC).isoformat()
+    try:
+        with _connect() as connection:
+            connection.execute(
+                "INSERT INTO users (user_id, email, password_hash, created_at) VALUES (?, ?, ?, ?)",
+                (user_id, email, password_hash, now),
+            )
+            connection.execute(
+                "INSERT INTO organizations (org_id, name, created_at) VALUES (?, ?, ?)",
+                (org_id, organization_name.strip()[:120], now),
+            )
+            connection.execute(
+                """
+                INSERT INTO organization_members (org_id, user_id, role, joined_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (org_id, user_id, "owner", now),
+            )
+    except sqlite3.IntegrityError as exc:
+        raise ValueError("A user with this email already exists.") from exc
+    context = RequestContext(org_id=org_id, user_id=user_id, role="owner", email=email)
+    record_audit_event(context, "auth.signup", user_id, {"organization_name": organization_name[:120]})
+    return context
+
+
+def get_user_for_login(email: str) -> tuple[str, str, str, str] | None:
+    if not settings.database_enabled:
+        return None
+    init_storage()
+    with _connect() as connection:
+        row = connection.execute(
+            """
+            SELECT users.user_id, users.email, users.password_hash, organization_members.org_id,
+                   organization_members.role
+            FROM users
+            JOIN organization_members ON organization_members.user_id = users.user_id
+            WHERE users.email = ?
+            ORDER BY organization_members.joined_at ASC
+            LIMIT 1
+            """,
+            (email,),
+        ).fetchone()
+    if row is None:
+        return None
+    return row["user_id"], row["email"], row["password_hash"], row["org_id"], row["role"]
+
+
+def context_from_user(user_id: str, org_id: str) -> RequestContext | None:
+    if not settings.database_enabled:
+        return None
+    init_storage()
+    with _connect() as connection:
+        row = connection.execute(
+            """
+            SELECT users.email, organization_members.role
+            FROM users
+            JOIN organization_members ON organization_members.user_id = users.user_id
+            WHERE users.user_id = ? AND organization_members.org_id = ?
+            """,
+            (user_id, org_id),
+        ).fetchone()
+    if row is None:
+        return None
+    return RequestContext(org_id=org_id, user_id=user_id, role=row["role"], email=row["email"])
+
+
+def organization_summary(context: RequestContext) -> OrganizationSummary:
+    if not settings.database_enabled:
+        return OrganizationSummary(org_id=context.org_id, name=context.org_id, role=context.role, members=[])
+    init_storage()
+    with _connect() as connection:
+        org = connection.execute(
+            "SELECT name FROM organizations WHERE org_id = ?",
+            (context.org_id,),
+        ).fetchone()
+        rows = connection.execute(
+            """
+            SELECT users.user_id, users.email, organization_members.role, organization_members.joined_at
+            FROM organization_members
+            JOIN users ON users.user_id = organization_members.user_id
+            WHERE organization_members.org_id = ?
+            ORDER BY organization_members.joined_at ASC
+            """,
+            (context.org_id,),
+        ).fetchall()
+    return OrganizationSummary(
+        org_id=context.org_id,
+        name=org["name"] if org else context.org_id,
+        role=context.role,
+        members=[
+            OrganizationMember(
+                user_id=row["user_id"],
+                email=row["email"],
+                role=row["role"],
+                joined_at=row["joined_at"],
+            )
+            for row in rows
+        ],
+    )
+
+
+def create_oauth_state(
+    context: RequestContext,
+    provider: str,
+    state: str,
+    redirect_uri: str,
+    expires_at: datetime,
+) -> None:
+    if not settings.database_enabled:
+        return
+    init_storage()
+    with _connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO oauth_states (state, org_id, user_id, provider, redirect_uri, created_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                state,
+                context.org_id,
+                context.user_id,
+                provider,
+                redirect_uri,
+                datetime.now(UTC).isoformat(),
+                expires_at.isoformat(),
+            ),
+        )
+    record_audit_event(context, "oauth.connect_started", provider, {"provider": provider})
+
+
+def consume_oauth_state(state: str, provider: str) -> RequestContext | None:
+    if not settings.database_enabled:
+        return None
+    init_storage()
+    with _connect() as connection:
+        row = connection.execute(
+            """
+            SELECT org_id, user_id, expires_at
+            FROM oauth_states
+            WHERE state = ? AND provider = ?
+            """,
+            (state, provider),
+        ).fetchone()
+        connection.execute("DELETE FROM oauth_states WHERE state = ?", (state,))
+    if row is None or datetime.fromisoformat(row["expires_at"]) < datetime.now(UTC):
+        return None
+    return context_from_user(row["user_id"], row["org_id"])
+
+
+def save_mailbox_integration(
+    context: RequestContext,
+    provider: str,
+    account_email: str,
+    scopes: list[str],
+    encrypted_token_json: str,
+    status: str = "connected",
+) -> MailboxIntegration:
+    if not settings.database_enabled:
+        raise ValueError("Database storage must be enabled for mailbox integrations.")
+    init_storage()
+    connected_at = datetime.now(UTC).isoformat()
+    with _connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO mailbox_integrations (
+                org_id, provider, account_email, scopes_json, encrypted_token_json, connected_at, status
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(org_id, provider) DO UPDATE SET
+                account_email = excluded.account_email,
+                scopes_json = excluded.scopes_json,
+                encrypted_token_json = excluded.encrypted_token_json,
+                connected_at = excluded.connected_at,
+                status = excluded.status
+            """,
+            (
+                context.org_id,
+                provider,
+                account_email,
+                json.dumps(scopes, ensure_ascii=False),
+                encrypted_token_json,
+                connected_at,
+                status,
+            ),
+        )
+    record_audit_event(context, "oauth.connected", provider, {"provider": provider})
+    return MailboxIntegration(
+        provider=provider,
+        connected=True,
+        account_email=account_email,
+        scopes=scopes,
+        connected_at=connected_at,
+        status=status,
+        privacy_note=_mailbox_privacy_note(provider),
+    )
+
+
+def list_mailbox_integrations(context: RequestContext) -> list[MailboxIntegration]:
+    if not settings.database_enabled:
+        return []
+    init_storage()
+    with _connect() as connection:
+        rows = connection.execute(
+            """
+            SELECT provider, account_email, scopes_json, connected_at, status
+            FROM mailbox_integrations
+            WHERE org_id = ?
+            ORDER BY connected_at DESC
+            """,
+            (context.org_id,),
+        ).fetchall()
+    return [
+        MailboxIntegration(
+            provider=row["provider"],
+            connected=True,
+            account_email=row["account_email"],
+            scopes=json.loads(row["scopes_json"]),
+            connected_at=row["connected_at"],
+            status=row["status"],
+            privacy_note=_mailbox_privacy_note(row["provider"]),
+        )
+        for row in rows
+    ]
+
+
+def delete_mailbox_integration(context: RequestContext, provider: str) -> None:
+    if not settings.database_enabled:
+        return
+    init_storage()
+    with _connect() as connection:
+        connection.execute(
+            "DELETE FROM mailbox_integrations WHERE org_id = ? AND provider = ?",
+            (context.org_id, provider),
+        )
+    record_audit_event(context, "oauth.disconnected", provider, {"provider": provider})
 
 
 def get_org_settings(context: RequestContext) -> OrgSettings:
@@ -559,11 +871,12 @@ def security_posture(context: RequestContext) -> SecurityPosture:
         "Submitted links are parsed but never visited.",
         "Attachments are statically triaged and never executed.",
         "Scan history stores redacted metadata and a body hash by default.",
-        "Tenant headers isolate demo workspace data.",
+        "Signed bearer tokens identify users and organizations; "
+        "demo tenant headers remain as a local fallback.",
         "Rate limiting and security headers are enabled.",
     ]
     next_steps = [
-        "Replace demo headers with a production identity provider.",
+        "Replace local auth with a managed identity provider before high-risk public launch.",
         "Terminate TLS at the edge and restrict CORS to deployed domains.",
         "Move SQLite demo storage to managed PostgreSQL before public launch.",
         "Connect paid threat-intel providers only after privacy notices are approved.",
@@ -685,3 +998,12 @@ def _count_scans(context: RequestContext, period_start: datetime, period_end: da
             """,
             (context.org_id, period_start.isoformat(), period_end.isoformat()),
         ).fetchone()[0]
+
+
+def _mailbox_privacy_note(provider: str) -> str:
+    return (
+        f"{provider} integration is designed for read-only mailbox scanning. "
+        "The app stores provider status and token material for API access, "
+        "but it must not mark messages read, "
+        "send mail, delete mail, or quarantine messages without a separate explicit workflow."
+    )

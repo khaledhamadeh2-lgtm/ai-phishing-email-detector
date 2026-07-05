@@ -33,7 +33,10 @@ class Settings(BaseSettings):
     database_path: str = "/tmp/phishguard.sqlite3"
     store_email_bodies: bool = False
     scan_retention_days: int = Field(default=30, ge=1, le=365)
-    auth_mode: str = "demo-headers"
+    auth_mode: str = "local"
+    auth_secret_key: str = "change-me-local-dev-secret"
+    auth_token_ttl_seconds: int = Field(default=86_400, ge=300, le=2_592_000)
+    password_hash_iterations: int = Field(default=210_000, ge=100_000, le=1_000_000)
     default_plan: str = "starter"
     enforce_plan_limits: bool = False
     starter_monthly_scan_limit: int = Field(default=250, ge=1, le=1_000_000)
@@ -42,6 +45,14 @@ class Settings(BaseSettings):
     enterprise_monthly_scan_limit: int = Field(default=250_000, ge=1, le=1_000_000)
     threat_intel_enabled: bool = False
     threat_intel_providers: str = "google_safe_browsing,virustotal,urlhaus"
+    public_base_url: str = "http://localhost:8000"
+    frontend_base_url: str = "http://localhost:5173"
+    oauth_state_ttl_seconds: int = Field(default=900, ge=60, le=3_600)
+    oauth_token_encryption_key: str = "change-me-local-oauth-token-key"
+    gmail_oauth_client_id: str = ""
+    gmail_oauth_client_secret: str = ""
+    outlook_oauth_client_id: str = ""
+    outlook_oauth_client_secret: str = ""
     trusted_domains: str = ""
     trusted_senders: str = ""
     protected_brands: str = "microsoft,google,apple,paypal,amazon,netflix,docusign,dropbox"

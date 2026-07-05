@@ -12,13 +12,16 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from .auth import create_access_token, decode_access_token, hash_password, normalize_email, verify_password
 from .config import settings
 from .detector import analyze
 from .mailbox import read_mailbox_history
+from .oauth import build_connect_response, encrypted_authorization_code_payload, scopes_for_provider
 from .parser import parse_eml
 from .schemas import (
     AnalysisResponse,
     AuditEvent,
+    AuthResponse,
     ComplianceExport,
     CurrentUser,
     DashboardMetrics,
@@ -26,10 +29,16 @@ from .schemas import (
     DataDeletionResponse,
     EmailInput,
     FeedbackInput,
+    LoginInput,
     MailboxHistoryRecord,
+    MailboxIntegration,
+    OAuthCallbackInput,
+    OAuthConnectResponse,
+    OrganizationSummary,
     OrgSettings,
     ScanHistoryRecord,
     SecurityPosture,
+    SignupInput,
     SubscriptionPlan,
     ThreatIntelPreview,
     UsageSummary,
@@ -38,16 +47,24 @@ from .storage import (
     RequestContext,
     can_create_scan,
     compliance_export,
+    consume_oauth_state,
+    context_from_user,
+    create_user_with_organization,
     dashboard_metrics,
+    delete_mailbox_integration,
     delete_org_data,
     get_org_settings,
     get_subscription,
+    get_user_for_login,
     init_storage,
     list_audit_events,
+    list_mailbox_integrations,
     list_scan_history,
     normalize_context,
+    organization_summary,
     record_feedback,
     record_scan,
+    save_mailbox_integration,
     save_org_settings,
     save_subscription,
     security_posture,
@@ -97,10 +114,49 @@ def require_api_key(x_api_key: str = Header(default="")) -> None:
 
 
 def request_context(
+    authorization: str = Header(default=""),
     x_org_id: str = Header(default="demo-org"),
     x_user_id: str = Header(default="anonymous"),
 ) -> RequestContext:
+    if authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+        try:
+            payload = decode_access_token(token)
+        except ValueError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        context = context_from_user(str(payload["sub"]), str(payload["org"]))
+        if context is None:
+            raise HTTPException(status_code=401, detail="Bearer token user or organization was not found.")
+        return context
     return normalize_context(x_org_id, x_user_id)
+
+
+def _current_user(context: RequestContext) -> CurrentUser:
+    return CurrentUser(
+        org_id=context.org_id,
+        user_id=context.user_id,
+        email=context.email,
+        role=context.role,
+        auth_mode=settings.auth_mode,
+        permissions=[
+            "scan:write",
+            "scan:read",
+            "settings:read",
+            "settings:write",
+            "feedback:write",
+            "audit:read",
+            "compliance:export",
+            "oauth:connect",
+        ],
+    )
+
+
+def _auth_response(context: RequestContext) -> AuthResponse:
+    return AuthResponse(
+        access_token=create_access_token(context.user_id, context.org_id, context.role),
+        expires_in_seconds=settings.auth_token_ttl_seconds,
+        user=_current_user(context),
+    )
 
 
 app = FastAPI(
@@ -116,7 +172,7 @@ app.add_middleware(
     allow_origins=settings.origins,
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["Content-Type", "X-API-Key", "X-Org-ID", "X-User-ID"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Org-ID", "X-User-ID"],
 )
 
 
@@ -130,23 +186,38 @@ def health() -> dict[str, str]:
     return {"status": "ok", "service": settings.app_name}
 
 
+@app.post("/api/auth/signup", response_model=AuthResponse, dependencies=[Depends(require_api_key)])
+def signup(payload: SignupInput) -> AuthResponse:
+    try:
+        context = create_user_with_organization(
+            email=normalize_email(payload.email),
+            password_hash=hash_password(payload.password),
+            organization_name=payload.organization_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _auth_response(context)
+
+
+@app.post("/api/auth/login", response_model=AuthResponse, dependencies=[Depends(require_api_key)])
+def login(payload: LoginInput) -> AuthResponse:
+    user = get_user_for_login(normalize_email(payload.email))
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+    user_id, email, password_hash, org_id, role = user
+    if not verify_password(payload.password, password_hash):
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+    return _auth_response(RequestContext(org_id=org_id, user_id=user_id, role=role, email=email))
+
+
 @app.get("/api/me", response_model=CurrentUser, dependencies=[Depends(require_api_key)])
 def me(context: RequestContext = Depends(request_context)) -> CurrentUser:
-    return CurrentUser(
-        org_id=context.org_id,
-        user_id=context.user_id,
-        role=context.role,
-        auth_mode=settings.auth_mode,
-        permissions=[
-            "scan:write",
-            "scan:read",
-            "settings:read",
-            "settings:write",
-            "feedback:write",
-            "audit:read",
-            "compliance:export",
-        ],
-    )
+    return _current_user(context)
+
+
+@app.get("/api/org", response_model=OrganizationSummary, dependencies=[Depends(require_api_key)])
+def org_summary(context: RequestContext = Depends(request_context)) -> OrganizationSummary:
+    return organization_summary(context)
 
 
 @app.get("/api/org/settings", response_model=OrgSettings, dependencies=[Depends(require_api_key)])
@@ -332,9 +403,86 @@ def threat_intel_preview(payload: EmailInput) -> ThreatIntelPreview:
 
 
 @app.get(
+    "/api/oauth/{provider}/connect",
+    response_model=OAuthConnectResponse,
+    dependencies=[Depends(require_api_key)],
+)
+def oauth_connect(
+    provider: str,
+    context: RequestContext = Depends(request_context),
+) -> OAuthConnectResponse:
+    if provider not in {"gmail", "outlook"}:
+        raise HTTPException(status_code=404, detail="Supported providers are gmail and outlook.")
+    return build_connect_response(context, provider)
+
+
+@app.get(
+    "/api/oauth/integrations",
+    response_model=list[MailboxIntegration],
+    dependencies=[Depends(require_api_key)],
+)
+def oauth_integrations(context: RequestContext = Depends(request_context)) -> list[MailboxIntegration]:
+    return list_mailbox_integrations(context)
+
+
+@app.post(
+    "/api/oauth/callback",
+    response_model=MailboxIntegration,
+    dependencies=[Depends(require_api_key)],
+)
+def oauth_callback(payload: OAuthCallbackInput) -> MailboxIntegration:
+    return _complete_oauth_callback(payload.provider, payload.state, payload.code)
+
+
+@app.get(
+    "/api/oauth/{provider}/callback",
+    response_model=MailboxIntegration,
+    dependencies=[Depends(require_api_key)],
+)
+def oauth_browser_callback(
+    provider: str,
+    state: str = Query(min_length=16, max_length=256),
+    code: str = Query(min_length=4, max_length=4096),
+) -> MailboxIntegration:
+    if provider not in {"gmail", "outlook"}:
+        raise HTTPException(status_code=404, detail="Supported providers are gmail and outlook.")
+    return _complete_oauth_callback(provider, state, code)
+
+
+@app.delete(
+    "/api/oauth/{provider}",
+    dependencies=[Depends(require_api_key)],
+)
+def oauth_disconnect(
+    provider: str,
+    context: RequestContext = Depends(request_context),
+) -> dict[str, str]:
+    if provider not in {"gmail", "outlook"}:
+        raise HTTPException(status_code=404, detail="Supported providers are gmail and outlook.")
+    delete_mailbox_integration(context, provider)
+    return {"status": "disconnected", "provider": provider}
+
+
+@app.get(
     "/api/mailbox/history",
     response_model=list[MailboxHistoryRecord],
     dependencies=[Depends(require_api_key)],
 )
 def mailbox_history(limit: int = Query(default=50, ge=1, le=200)) -> list[MailboxHistoryRecord]:
     return read_mailbox_history(limit)
+
+
+def _complete_oauth_callback(provider: str, state: str, code: str) -> MailboxIntegration:
+    context = consume_oauth_state(state, provider)
+    if context is None:
+        raise HTTPException(status_code=400, detail="OAuth state is invalid or expired.")
+    account_email = f"{provider}-account@connected.local"
+    encrypted_payload = encrypted_authorization_code_payload(provider, code)
+    return save_mailbox_integration(
+        context,
+        provider=provider,
+        account_email=account_email,
+        scopes=scopes_for_provider(provider),
+        encrypted_token_json=encrypted_payload,
+        status="connected_pending_token_exchange",
+    )

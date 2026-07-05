@@ -12,6 +12,18 @@ select:focus{border-color:#58e6aa99;box-shadow:0 0 0 3px #58e6aa12}
 .thresholds span{font:10px "Space Mono";color:#9db0a9;background:#ffffff0a;border:1px solid #ffffff12;border-radius:999px;padding:5px 8px}
 @media(max-width:900px){.composer,.tuning,.report{grid-column:auto;grid-row:auto}}
 .metrics-section{max-width:1240px;margin:0 auto 18px}
+.identity-section{max-width:1240px;margin:0 auto 18px}
+.identity-grid{display:grid;grid-template-columns:1.1fr .9fr 1fr;gap:12px}
+.identity-grid article{border:1px solid #ffffff12;background:#07110f99;border-radius:13px;padding:18px}
+.identity-grid h3{margin:0 0 10px;font-size:14px;color:#e9f1ee}
+.identity-grid .compact{justify-content:flex-start}
+.identity-grid .compact .analyze{padding:9px 12px;font-size:11px}
+.oauth-actions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.oauth-actions button,.integration-list button{border:1px solid #58e6aa44;background:#58e6aa12;color:#dff8ee;border-radius:8px;padding:8px 10px;font-size:11px;cursor:pointer}
+.integration-list{display:grid;gap:8px;margin-top:10px}
+.integration-list p{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;margin:0;border:1px solid #ffffff0e;background:#ffffff08;border-radius:9px;padding:9px}
+.integration-list b{font-size:12px;text-transform:capitalize}
+.integration-list span{font:10px "Space Mono";color:#9db0a9}
 .metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 .metric-grid article{border:1px solid #ffffff12;background:#07110f99;border-radius:13px;padding:16px}
 .metric-grid b{display:block;font:700 34px "Space Mono";color:#58e6aa}
@@ -35,6 +47,6 @@ select:focus{border-color:#58e6aa99;box-shadow:0 0 0 3px #58e6aa12}
 .audit-list p{margin:0;border:1px solid #ffffff0e;border-radius:9px;background:#ffffff08;padding:10px}
 .audit-list b{display:block;font-size:12px;color:#e9f1ee}
 .audit-list span{display:block;margin-top:3px;color:#82978f;font:10px "Space Mono"}
-@media(max-width:900px){.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.metrics-section{margin-inline:12px}}
+@media(max-width:900px){.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.metrics-section,.identity-section{margin-inline:12px}.identity-grid{grid-template-columns:1fr}}
 @media(max-width:900px){.business-grid,.ops-grid{grid-template-columns:1fr}.ops-section{margin-inline:12px}}
 @media(max-width:540px){.metric-grid{grid-template-columns:1fr}}

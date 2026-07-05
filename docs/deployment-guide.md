@@ -19,7 +19,11 @@ PHISHGUARD_DATABASE_ENABLED=true
 PHISHGUARD_DATABASE_URL=postgresql://user:password@host:5432/phishguard
 PHISHGUARD_STORE_EMAIL_BODIES=false
 PHISHGUARD_SCAN_RETENTION_DAYS=30
-PHISHGUARD_AUTH_MODE=provider
+PHISHGUARD_AUTH_MODE=local
+PHISHGUARD_AUTH_SECRET_KEY=<strong-random-session-signing-secret>
+PHISHGUARD_OAUTH_TOKEN_ENCRYPTION_KEY=<strong-random-oauth-token-secret>
+PHISHGUARD_PUBLIC_BASE_URL=https://your-api.example
+PHISHGUARD_FRONTEND_BASE_URL=https://your-frontend.example
 PHISHGUARD_DEFAULT_PLAN=starter
 PHISHGUARD_ENFORCE_PLAN_LIMITS=false
 PHISHGUARD_THREAT_INTEL_ENABLED=false
@@ -31,8 +35,8 @@ users.
 
 ## Launch checklist
 
-- Replace demo tenant headers with real authentication.
-- Add account email verification and password reset.
+- Decide whether to keep local auth or move to Clerk/Auth0/Supabase Auth.
+- Add account email verification, password reset, MFA, and session revocation before real customers.
 - Add org roles: owner, admin, analyst, viewer.
 - Migrate scan and settings tables to PostgreSQL.
 - Enable TLS and strict CORS.
@@ -53,6 +57,9 @@ Public SaaS should not ask for mailbox passwords.
 
 - Gmail: use OAuth and read-only Gmail API scopes.
 - Outlook/Microsoft 365: use Microsoft Graph `Mail.Read` with admin-consent support for organizations.
+- Configure `PHISHGUARD_GMAIL_OAUTH_CLIENT_ID`, `PHISHGUARD_GMAIL_OAUTH_CLIENT_SECRET`,
+  `PHISHGUARD_OUTLOOK_OAUTH_CLIENT_ID`, and `PHISHGUARD_OUTLOOK_OAUTH_CLIENT_SECRET` in the deployment secret manager.
+- Exchange authorization codes server-side and encrypt refresh tokens with a managed KMS before scanning real mail.
 - Store refresh tokens encrypted using a managed KMS/secret system.
 - Provide a disconnect button that revokes integration state.
 - Keep scanning read-only until quarantine workflows are separately designed and consented.

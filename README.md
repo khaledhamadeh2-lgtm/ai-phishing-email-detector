@@ -70,11 +70,12 @@ flowchart LR
   noisy warnings on ordinary business email.
 - **Feedback loop:** users can label false positives, false negatives, and correct decisions by analysis ID. The
   feedback log intentionally avoids storing full email bodies so it can support future tuning with less privacy risk.
-- **SaaS foundation:** analysis requests can carry `X-Org-ID` and `X-User-ID` context. Redacted scan history and
-  feedback are persisted in SQLite for local demos, with a clean migration path to managed PostgreSQL.
+- **SaaS foundation:** local signup/login issues signed bearer tokens tied to users, organizations, and roles. Demo
+  `X-Org-ID` and `X-User-ID` headers remain available for quick local testing. Redacted scan history and feedback are
+  persisted in SQLite for local demos, with a clean migration path to managed PostgreSQL.
 - **Product dashboard:** workspace settings, dashboard metrics, scan history, usage metering, subscription scaffolding,
-  audit logs, compliance export/delete, security posture, and safe threat-intelligence preview endpoints model the
-  structure needed for a future SaaS.
+  audit logs, compliance export/delete, security posture, read-only Gmail/Outlook OAuth connection scaffolding, and
+  safe threat-intelligence preview endpoints model the structure needed for a future SaaS.
 - **Mailbox dashboard:** automatic scans write a redacted history containing sender, subject, verdict, score, top
   reasons, attachment count, hashes, and analysis ID. Full email bodies are not stored by default.
 - **Fusion:** bounded weighted scoring maps to `Safe` (<35), `Suspicious` (35-69.9), or `Likely Phishing` (>=70).
@@ -125,7 +126,14 @@ also evaluates authentication results and sender/reply-to alignment.
 `POST /api/feedback` accepts an `analysis_id`, label, and optional note. Valid labels are `safe`, `suspicious`,
 `phishing`, `false_positive`, and `false_negative`.
 
-`GET /api/me` returns the current demo-auth context and role scaffold.
+`POST /api/auth/signup` creates a local user, organization, owner membership, and signed bearer token.
+
+`POST /api/auth/login` verifies a password hash and returns a bearer token. Send it as
+`Authorization: Bearer <token>` to use organization-scoped endpoints without demo tenant headers.
+
+`GET /api/me` returns the current user, organization, role, auth mode, and permissions.
+
+`GET /api/org` returns the current organization and member list.
 
 `GET /api/org/settings` and `PUT /api/org/settings` manage trusted domains, known senders, sensitivity, retention,
 privacy mode, and mailbox alert threshold for a workspace.
@@ -152,6 +160,12 @@ to simulate workspace/user context in local demos. The response includes a body 
 `POST /api/threat-intel/preview` extracts URL domains and shows which reputation providers are scaffolded. It does not
 perform external lookups by default.
 
+`GET /api/oauth/gmail/connect` and `GET /api/oauth/outlook/connect` generate read-only OAuth authorization URLs.
+`POST /api/oauth/callback` or `GET /api/oauth/{provider}/callback` validates OAuth state and records the connection.
+`GET /api/oauth/integrations` lists connected providers and `DELETE /api/oauth/{provider}` disconnects one. The
+callback stores a pending token-exchange record; production should exchange provider codes server-side and encrypt
+refresh tokens with a managed KMS.
+
 `GET /api/mailbox/history` returns recent redacted mailbox scan records for the dashboard. It does not include message
 bodies.
 
@@ -169,11 +183,19 @@ PHISHGUARD_DATABASE_URL=sqlite:////tmp/phishguard.sqlite3
 PHISHGUARD_DATABASE_PATH=/tmp/phishguard.sqlite3
 PHISHGUARD_STORE_EMAIL_BODIES=false
 PHISHGUARD_SCAN_RETENTION_DAYS=30
-PHISHGUARD_AUTH_MODE=demo-headers
+PHISHGUARD_AUTH_MODE=local
+PHISHGUARD_AUTH_SECRET_KEY=change-me-use-a-long-random-secret
+PHISHGUARD_AUTH_TOKEN_TTL_SECONDS=86400
+PHISHGUARD_PASSWORD_HASH_ITERATIONS=210000
 PHISHGUARD_DEFAULT_PLAN=starter
 PHISHGUARD_ENFORCE_PLAN_LIMITS=false
 PHISHGUARD_THREAT_INTEL_ENABLED=false
 PHISHGUARD_THREAT_INTEL_PROVIDERS=google_safe_browsing,virustotal,urlhaus
+PHISHGUARD_PUBLIC_BASE_URL=http://localhost:8000
+PHISHGUARD_FRONTEND_BASE_URL=http://localhost:5173
+PHISHGUARD_OAUTH_TOKEN_ENCRYPTION_KEY=change-me-use-a-long-random-oauth-secret
+PHISHGUARD_GMAIL_OAUTH_CLIENT_ID=
+PHISHGUARD_OUTLOOK_OAUTH_CLIENT_ID=
 ```
 
 Organization context can be configured through environment variables:
@@ -235,10 +257,11 @@ Copy `.env.example` to `.env` only when overriding defaults. Never commit real e
 ## SaaS roadmap
 
 The current implementation includes the first product-grade foundation: tenant-aware context, redacted persisted scan
-history, feedback events, workspace settings, dashboard metrics, subscription and usage-metering scaffolding, audit
-events, compliance export/delete workflows, security posture reporting, safe threat-intelligence scaffolding, retention
-settings, and Docker volume persistence. The path to real accounts, PostgreSQL, Gmail/Outlook OAuth,
-production threat-intelligence APIs, deployment, and Stripe billing is documented in
+history, feedback events, workspace settings, dashboard metrics, local bearer-token authentication, organization
+memberships, read-only Gmail/Outlook OAuth connection scaffolding, subscription and usage-metering scaffolding, audit
+events, compliance export/delete workflows, security posture reporting, safe threat-intelligence scaffolding,
+retention settings, and Docker volume persistence. The path to managed identity, PostgreSQL, production OAuth token
+exchange, threat-intelligence APIs, deployment, and Stripe billing is documented in
 [`docs/saas-roadmap.md`](docs/saas-roadmap.md). A practical launch checklist is in
 [`docs/deployment-guide.md`](docs/deployment-guide.md).
 
@@ -249,6 +272,9 @@ production threat-intelligence APIs, deployment, and Stripe billing is documente
   uploaded to third-party scanners.
 - Feedback stores analysis IDs, labels, timestamps, and optional notes instead of full private email bodies.
 - Scan history stores redacted metadata and SHA-256 body hashes by default, not full message bodies.
+- Local passwords are hashed with PBKDF2-HMAC-SHA256 and API sessions use signed bearer tokens.
+- OAuth state is short-lived and provider callbacks are protected against CSRF-style replay. Production deployments
+  should exchange provider codes server-side and encrypt refresh tokens using a managed secret/KMS service.
 - Compliance export/delete endpoints operate on tenant-scoped redacted records and require explicit org confirmation
   before deletion.
 - Audit events make settings, feedback, scans, subscription updates, and compliance actions traceable.
@@ -279,7 +305,8 @@ docker compose build
 - SPF, DKIM, and DMARC findings are useful only when the supplied headers came from a trusted mail server.
 - Character features improve resistance to simple obfuscation but not new languages or novel social engineering.
 - Automatic mailbox scanning is detection-only and deliberately does not quarantine or modify messages.
-- The current account model uses demo tenant headers; real public SaaS should replace this with proper authentication.
+- Local auth is suitable for a serious demo/MVP but a public SaaS should consider a managed identity provider,
+  MFA, email verification, password reset, account lockout, and session revocation.
 - Future work: campaign-grouped evaluation, multilingual models, SHAP-style feature explanations, feedback review,
   PostgreSQL migrations, OAuth mailbox integrations, attachment sandboxing in an isolated VM, QR/OCR analysis,
   privacy-conscious domain reputation, billing, and drift monitoring.

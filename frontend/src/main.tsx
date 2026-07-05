@@ -104,6 +104,28 @@ type SecurityPosture = {
   controls: string[];
   recommended_next_steps: string[];
 };
+type CurrentUser = {
+  org_id: string;
+  user_id: string;
+  email: string;
+  role: string;
+  auth_mode: string;
+};
+type Organization = {
+  org_id: string;
+  name: string;
+  role: string;
+  members: { user_id: string; email: string; role: string; joined_at: string }[];
+};
+type MailboxIntegration = {
+  provider: string;
+  connected: boolean;
+  account_email: string;
+  scopes: string[];
+  connected_at: string;
+  status: string;
+  privacy_note: string;
+};
 
 const samples = {
   suspicious: {
@@ -150,6 +172,15 @@ function App() {
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [audit, setAudit] = useState<AuditEvent[]>([]);
   const [posture, setPosture] = useState<SecurityPosture | null>(null);
+  const [token, setToken] = useState(() => localStorage.getItem("phishguard_token") || "");
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [organization, setOrganization] = useState<Organization | null>(null);
+  const [integrations, setIntegrations] = useState<MailboxIntegration[]>([]);
+  const [authForm, setAuthForm] = useState({
+    email: "owner@demo.test",
+    password: "correct horse battery staple",
+    organizationName: "Demo Security Team",
+  });
   const [loading, setLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState("");
@@ -158,7 +189,12 @@ function App() {
   const tone = useMemo(() => (result ? riskClass(result.probability) : "neutral"), [result]);
 
   function tenantHeaders() {
-    return { "X-Org-ID": workspace.orgId || "demo-org", "X-User-ID": workspace.userId || "anonymous" };
+    const headers: Record<string, string> = {
+      "X-Org-ID": workspace.orgId || "demo-org",
+      "X-User-ID": workspace.userId || "anonymous",
+    };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return headers;
   }
 
   async function refreshProductState() {
@@ -172,6 +208,9 @@ function App() {
         usageResponse,
         auditResponse,
         postureResponse,
+        meResponse,
+        orgResponse,
+        integrationsResponse,
       ] = await Promise.all([
         fetch(`${api}/api/org/settings`, { headers: tenantHeaders() }),
         fetch(`${api}/api/scans/history?limit=8`, { headers: tenantHeaders() }),
@@ -180,6 +219,9 @@ function App() {
         fetch(`${api}/api/billing/usage`, { headers: tenantHeaders() }),
         fetch(`${api}/api/audit/events?limit=6`, { headers: tenantHeaders() }),
         fetch(`${api}/api/security/posture`, { headers: tenantHeaders() }),
+        fetch(`${api}/api/me`, { headers: tenantHeaders() }),
+        fetch(`${api}/api/org`, { headers: tenantHeaders() }),
+        fetch(`${api}/api/oauth/integrations`, { headers: tenantHeaders() }),
       ]);
       if (settingsResponse.ok) setSettings(await settingsResponse.json());
       if (historyResponse.ok) setHistory(await historyResponse.json());
@@ -188,6 +230,9 @@ function App() {
       if (usageResponse.ok) setUsage(await usageResponse.json());
       if (auditResponse.ok) setAudit(await auditResponse.json());
       if (postureResponse.ok) setPosture(await postureResponse.json());
+      if (meResponse.ok) setCurrentUser(await meResponse.json());
+      if (orgResponse.ok) setOrganization(await orgResponse.json());
+      if (integrationsResponse.ok) setIntegrations(await integrationsResponse.json());
     } finally {
       setHistoryLoading(false);
     }
@@ -195,7 +240,7 @@ function App() {
 
   useEffect(() => {
     void refreshProductState();
-  }, [workspace.orgId]);
+  }, [workspace.orgId, token]);
 
   async function saveSettings() {
     const response = await fetch(`${api}/api/org/settings`, {
@@ -209,6 +254,68 @@ function App() {
     }
     setSettings(await response.json());
     setFeedback("Settings saved for this workspace.");
+  }
+
+  async function authenticate(mode: "signup" | "login") {
+    setError("");
+    setFeedback("");
+    const payload = mode === "signup"
+      ? { email: authForm.email, password: authForm.password, organization_name: authForm.organizationName }
+      : { email: authForm.email, password: authForm.password };
+    try {
+      const response = await fetch(`${api}/api/auth/${mode}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error(mode === "signup" ? "Signup failed." : "Login failed.");
+      const data = await response.json();
+      localStorage.setItem("phishguard_token", data.access_token);
+      setToken(data.access_token);
+      setCurrentUser(data.user);
+      setWorkspace({ orgId: data.user.org_id, userId: data.user.user_id });
+      setFeedback(`${mode === "signup" ? "Workspace created" : "Logged in"} as ${data.user.email}.`);
+      await refreshProductState();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Authentication failed.");
+    }
+  }
+
+  function logout() {
+    localStorage.removeItem("phishguard_token");
+    setToken("");
+    setCurrentUser(null);
+    setOrganization(null);
+    setIntegrations([]);
+    setFeedback("Logged out. Demo headers are active again.");
+  }
+
+  async function connectMailbox(provider: "gmail" | "outlook") {
+    setError("");
+    setFeedback("");
+    try {
+      const response = await fetch(`${api}/api/oauth/${provider}/connect`, { headers: tenantHeaders() });
+      if (!response.ok) throw new Error(`Could not start ${provider} OAuth.`);
+      const data = await response.json();
+      setFeedback(`${provider} OAuth URL generated. In production this opens provider consent.`);
+      window.open(data.authorization_url, "_blank", "noopener,noreferrer");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "OAuth connection failed.");
+    }
+  }
+
+  async function disconnectMailbox(provider: string) {
+    setError("");
+    const response = await fetch(`${api}/api/oauth/${provider}`, {
+      method: "DELETE",
+      headers: tenantHeaders(),
+    });
+    if (!response.ok) {
+      setError(`Could not disconnect ${provider}.`);
+      return;
+    }
+    setFeedback(`${provider} disconnected.`);
+    await refreshProductState();
   }
 
   async function submit(event: React.FormEvent) {
@@ -299,7 +406,54 @@ function App() {
       <section className="hero">
         <p className="eyebrow">Explainable threat intelligence</p>
         <h1>Know before you <span>click.</span></h1>
-        <p>Hybrid ML, tenant-aware scan history, privacy-first settings, and safe threat-intel scaffolding.</p>
+        <p>Hybrid ML, real workspace auth, tenant-aware scan history, and read-only Gmail/Outlook connection scaffolding.</p>
+      </section>
+
+      <section className="identity-section panel">
+        <div className="panel-title">
+          <div><small>00 / ACCOUNT & INTEGRATIONS</small><h2>{currentUser ? organization?.name ?? currentUser.org_id : "Create a workspace"}</h2></div>
+          {currentUser ? <button className="ghost" type="button" onClick={logout}>Log out</button> : null}
+        </div>
+        <div className="identity-grid">
+          <article>
+            <h3>{currentUser ? "Signed in" : "Local product auth"}</h3>
+            {currentUser ? (
+              <p className="quiet">{currentUser.email} · {currentUser.role} · {currentUser.auth_mode}</p>
+            ) : (
+              <>
+                <label>Email<input value={authForm.email} onChange={(e) => setAuthForm({...authForm, email: e.target.value})} /></label>
+                <label>Password<input type="password" value={authForm.password} onChange={(e) => setAuthForm({...authForm, password: e.target.value})} /></label>
+                <label>Organization<input value={authForm.organizationName} onChange={(e) => setAuthForm({...authForm, organizationName: e.target.value})} /></label>
+                <div className="actions compact">
+                  <button className="analyze" type="button" onClick={() => authenticate("signup")}>Create workspace</button>
+                  <button className="ghost" type="button" onClick={() => authenticate("login")}>Log in</button>
+                </div>
+              </>
+            )}
+          </article>
+          <article>
+            <h3>Organization</h3>
+            <p className="quiet">{organization?.members.length ?? 0} member(s). Roles are ready for owner/admin/analyst/viewer workflows.</p>
+            <div className="reason-chips">{organization?.members.slice(0, 4).map((member) => <em key={member.user_id}>{member.email}: {member.role}</em>)}</div>
+          </article>
+          <article>
+            <h3>Read-only mailbox OAuth</h3>
+            <p className="quiet">Generates Gmail/Microsoft consent URLs and stores connection state without sending, deleting, or modifying mail.</p>
+            <div className="oauth-actions">
+              <button type="button" onClick={() => connectMailbox("gmail")}>Connect Gmail</button>
+              <button type="button" onClick={() => connectMailbox("outlook")}>Connect Outlook</button>
+            </div>
+            <div className="integration-list">
+              {integrations.length ? integrations.map((item) => (
+                <p key={item.provider}>
+                  <b>{item.provider}</b>
+                  <span>{item.status}</span>
+                  <button type="button" onClick={() => disconnectMailbox(item.provider)}>Disconnect</button>
+                </p>
+              )) : <p className="quiet">No mailbox provider connected yet.</p>}
+            </div>
+          </article>
+        </div>
       </section>
 
       <section className="metrics-section panel">
