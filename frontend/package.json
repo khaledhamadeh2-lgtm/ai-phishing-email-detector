@@ -1,0 +1,28 @@
+{
+  "name": "phishguard-web",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -b && vite build",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "4.4.1",
+    "vite": "6.4.3",
+    "typescript": "5.8.3",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.4",
+    "@types/react": "19.1.2",
+    "@types/react-dom": "19.1.2",
+    "eslint": "9.39.4",
+    "eslint-plugin-react-hooks": "5.2.0",
+    "eslint-plugin-react-refresh": "0.4.20",
+    "globals": "16.0.0",
+    "typescript-eslint": "8.32.1"
+  }
+}

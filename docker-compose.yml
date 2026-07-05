@@ -1,0 +1,44 @@
+services:
+  api:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      PHISHGUARD_ALLOWED_ORIGINS: http://localhost:8080
+      PHISHGUARD_MODEL_PATH: models/phishguard-v3.joblib
+      PHISHGUARD_DATABASE_PATH: /data/phishguard.sqlite3
+      PHISHGUARD_STORE_EMAIL_BODIES: "false"
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - app-data:/data
+  web:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:8000
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+  mailbox-scanner:
+    profiles: ["mailbox"]
+    build: ./backend
+    command: ["python", "-m", "app.worker"]
+    env_file:
+      - .env
+    environment:
+      PHISHGUARD_MODEL_PATH: models/phishguard-v3.joblib
+      PHISHGUARD_MAILBOX_STATE_PATH: /state/mailbox-state.json
+      PHISHGUARD_MAILBOX_ALERT_PATH: /state/phishing-alerts.jsonl
+      PHISHGUARD_MAILBOX_HISTORY_PATH: /state/mailbox-history.jsonl
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - mailbox-state:/state
+
+volumes:
+  app-data:
+  mailbox-state:

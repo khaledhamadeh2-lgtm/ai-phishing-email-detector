@@ -1,0 +1,14 @@
+{
+  "dataset_name": "zefang-liu/phishing-email-dataset",
+  "dataset_url": "https://huggingface.co/datasets/zefang-liu/phishing-email-dataset",
+  "raw_file": "Phishing_Email.csv",
+  "license": "lgpl-3.0",
+  "raw_rows": 18650,
+  "normalized_rows": 17522,
+  "skipped_rows": 19,
+  "label_mapping": {
+    "Safe Email": 0,
+    "Phishing Email": 1
+  },
+  "notes": "Raw corpus is downloaded locally and normalized to text,label,source. The raw dataset is not committed to the repository."
+}

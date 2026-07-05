@@ -1,0 +1,75 @@
+<svg width="1440" height="980" viewBox="0 0 1440 980" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1440" height="980" fill="#07110F"/>
+  <circle cx="1170" cy="80" r="420" fill="#16372C" opacity=".72"/>
+  <text x="70" y="78" fill="#E9F1EE" font-family="Consolas, monospace" font-size="24" font-weight="700">PHISHGUARD <tspan fill="#58E6AA">AI</tspan></text>
+  <circle cx="1240" cy="70" r="6" fill="#58E6AA"/>
+  <text x="1258" y="76" fill="#9DB0A9" font-family="Consolas, monospace" font-size="14">Analysis engine ready</text>
+
+  <text x="435" y="138" fill="#58E6AA" font-family="Consolas, monospace" font-size="13" letter-spacing="4">EXPLAINABLE THREAT INTELLIGENCE</text>
+  <text x="382" y="212" fill="#E9F1EE" font-family="Arial, sans-serif" font-size="70" font-weight="700">Know before you <tspan fill="#58E6AA">click.</tspan></text>
+  <text x="306" y="257" fill="#9DB0A9" font-family="Arial, sans-serif" font-size="21">Hybrid ML, mailbox monitoring, attachment triage, and tunable security heuristics.</text>
+
+  <rect x="70" y="315" width="600" height="330" rx="18" fill="#0D1B17" stroke="#FFFFFF" stroke-opacity=".12"/>
+  <text x="105" y="358" fill="#58E6AA" font-family="Consolas, monospace" font-size="12">01 / INPUT</text>
+  <text x="105" y="392" fill="#E9F1EE" font-family="Arial, sans-serif" font-size="28" font-weight="700">Inspect a message</text>
+  <rect x="105" y="425" width="530" height="44" rx="9" fill="#07110F" stroke="#FFFFFF" stroke-opacity=".12"/>
+  <text x="125" y="453" fill="#DDE8E3" font-family="Consolas, monospace" font-size="15">Microsoft Support &lt;security.microsoft@gmail.com&gt;</text>
+  <rect x="105" y="487" width="530" height="44" rx="9" fill="#07110F" stroke="#FFFFFF" stroke-opacity=".12"/>
+  <text x="125" y="515" fill="#DDE8E3" font-family="Consolas, monospace" font-size="15">URGENT: Account suspended</text>
+  <rect x="105" y="550" width="530" height="54" rx="9" fill="#07110F" stroke="#FFFFFF" stroke-opacity=".12"/>
+  <text x="125" y="582" fill="#DDE8E3" font-family="Consolas, monospace" font-size="14">Verify your password at https://198.51.100.10/login</text>
+  <rect x="432" y="615" width="203" height="42" rx="9" fill="#58E6AA"/>
+  <text x="465" y="642" fill="#06110D" font-family="Arial, sans-serif" font-size="16" font-weight="700">Analyze message →</text>
+
+  <rect x="70" y="665" width="600" height="185" rx="18" fill="#102820" stroke="#FFFFFF" stroke-opacity=".12"/>
+  <text x="105" y="707" fill="#58E6AA" font-family="Consolas, monospace" font-size="12">02 / TUNING</text>
+  <text x="105" y="740" fill="#E9F1EE" font-family="Arial, sans-serif" font-size="27" font-weight="700">False-positive controls</text>
+  <text x="105" y="768" fill="#82978F" font-family="Arial, sans-serif" font-size="15">Trusted context lowers risk carefully; it never automatically declares an email safe.</text>
+  <rect x="105" y="790" width="250" height="38" rx="19" fill="#07110F" stroke="#58E6AA" stroke-opacity=".35"/>
+  <text x="124" y="815" fill="#DDE8E3" font-family="Consolas, monospace" font-size="13">trustedvendor.com</text>
+  <rect x="370" y="790" width="165" height="38" rx="19" fill="#07110F" stroke="#58E6AA" stroke-opacity=".35"/>
+  <text x="392" y="815" fill="#DDE8E3" font-family="Consolas, monospace" font-size="13">precision mode</text>
+
+  <rect x="705" y="315" width="665" height="535" rx="18" fill="#0D1B17" stroke="#FFFFFF" stroke-opacity=".12"/>
+  <text x="740" y="358" fill="#58E6AA" font-family="Consolas, monospace" font-size="12">03 / ASSESSMENT</text>
+  <text x="740" y="392" fill="#E9F1EE" font-family="Arial, sans-serif" font-size="28" font-weight="700">Threat report</text>
+  <rect x="1194" y="354" width="135" height="30" rx="15" stroke="#FF6F70"/>
+  <text x="1210" y="374" fill="#FF6F70" font-family="Consolas, monospace" font-size="12">LIKELY PHISHING</text>
+  <text x="740" y="487" fill="#E9F1EE" font-family="Consolas, monospace" font-size="82" font-weight="700">92<tspan font-size="28" fill="#9DB0A9">%</tspan></text>
+  <text x="918" y="452" fill="#E9F1EE" font-family="Arial, sans-serif" font-size="20" font-weight="700">Phishing probability</text>
+  <text x="918" y="482" fill="#7C9189" font-family="Consolas, monospace" font-size="13">ML 96% · Rules 87% · balanced</text>
+  <rect x="918" y="500" width="138" height="24" rx="12" fill="#FFFFFF" opacity=".08"/>
+  <text x="932" y="516" fill="#9DB0A9" font-family="Consolas, monospace" font-size="10">Suspicious ≥ 35%</text>
+  <rect x="1065" y="500" width="162" height="24" rx="12" fill="#FFFFFF" opacity=".08"/>
+  <text x="1079" y="516" fill="#9DB0A9" font-family="Consolas, monospace" font-size="10">Likely phishing ≥ 70%</text>
+  <rect x="740" y="542" width="585" height="8" rx="4" fill="#FFFFFF" opacity=".10"/>
+  <rect x="740" y="542" width="538" height="8" rx="4" fill="#FF6F70"/>
+
+  <text x="740" y="592" fill="#ADBDB6" font-family="Consolas, monospace" font-size="14">DETECTED SIGNALS</text>
+  <rect x="740" y="612" width="585" height="44" rx="10" fill="#07110F" stroke="#FFFFFF" stroke-opacity=".08"/>
+  <circle cx="762" cy="634" r="11" fill="#FF6F70" opacity=".25"/><text x="758" y="639" fill="#FF6F70" font-family="Arial" font-size="15" font-weight="700">!</text>
+  <text x="785" y="639" fill="#E9F1EE" font-family="Arial" font-size="15" font-weight="700">Brand sent from free email</text>
+  <text x="1202" y="639" fill="#FF8A8A" font-family="Consolas, monospace" font-size="13">+24</text>
+  <rect x="740" y="665" width="585" height="44" rx="10" fill="#07110F" stroke="#FFFFFF" stroke-opacity=".08"/>
+  <circle cx="762" cy="687" r="11" fill="#FFC45E" opacity=".25"/><text x="758" y="692" fill="#FFC45E" font-family="Arial" font-size="15" font-weight="700">!</text>
+  <text x="785" y="692" fill="#E9F1EE" font-family="Arial" font-size="15" font-weight="700">Credential request and suspicious link</text>
+  <text x="1202" y="692" fill="#FF8A8A" font-family="Consolas, monospace" font-size="13">+42</text>
+  <rect x="740" y="718" width="585" height="56" rx="10" fill="#07110F" stroke="#FFFFFF" stroke-opacity=".08"/>
+  <circle cx="762" cy="746" r="11" fill="#FF6F70" opacity=".25"/><text x="758" y="751" fill="#FF6F70" font-family="Arial" font-size="15" font-weight="700">!</text>
+  <text x="785" y="742" fill="#E9F1EE" font-family="Arial" font-size="15" font-weight="700">Attachment triage: invoice.pdf.exe</text>
+  <text x="785" y="762" fill="#83958F" font-family="Arial" font-size="12">Windows executable bytes, misleading double extension</text>
+  <text x="1202" y="750" fill="#FF8A8A" font-family="Consolas, monospace" font-size="13">+60</text>
+
+  <rect x="70" y="880" width="1300" height="76" rx="18" fill="#0D1B17" stroke="#FFFFFF" stroke-opacity=".12"/>
+  <text x="105" y="915" fill="#58E6AA" font-family="Consolas, monospace" font-size="12">04 / MAILBOX MONITOR</text>
+  <text x="105" y="942" fill="#E9F1EE" font-family="Arial, sans-serif" font-size="24" font-weight="700">Recent scanned emails</text>
+  <rect x="560" y="897" width="210" height="38" rx="12" fill="#07110F" stroke="#FF6F70" stroke-opacity=".35"/>
+  <text x="580" y="922" fill="#FF6F70" font-family="Consolas, monospace" font-size="18" font-weight="700">92%</text>
+  <text x="640" y="921" fill="#E9F1EE" font-family="Arial" font-size="13">Urgent account</text>
+  <rect x="790" y="897" width="210" height="38" rx="12" fill="#07110F" stroke="#FFC45E" stroke-opacity=".35"/>
+  <text x="810" y="922" fill="#FFC45E" font-family="Consolas, monospace" font-size="18" font-weight="700">42%</text>
+  <text x="870" y="921" fill="#E9F1EE" font-family="Arial" font-size="13">Invoice reminder</text>
+  <rect x="1020" y="897" width="210" height="38" rx="12" fill="#07110F" stroke="#58E6AA" stroke-opacity=".35"/>
+  <text x="1040" y="922" fill="#58E6AA" font-family="Consolas, monospace" font-size="18" font-weight="700">9%</text>
+  <text x="1090" y="921" fill="#E9F1EE" font-family="Arial" font-size="13">Project notes</text>
+</svg>
